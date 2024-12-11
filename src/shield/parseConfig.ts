@@ -1,24 +1,30 @@
+// import { ValueDeterminingMiddleware, Store } from "../types";
+import type {
+    Options,
+    AugmentedRequest,
+    Store,
+    ClientRateLimitInfo,
+    ValueDeterminingMiddleware,
+    RateLimitExceededEventHandler,
+    DraftHeadersVersion,
+    RateLimitInfo,
+    EnabledValidations,
+} from '../types';
 
-
-type ProtectionConfig = {
-    suspicionThreshold?: number;
-    blockDurationMs?: number;
-    detectionPatterns?: Array<RegExp>;
-    csrf?: boolean; // Cross-Site Request Forgery protection
-    xss?: boolean;  // Cross-Site Scripting protection
-    sqlInjection?: boolean; // SQL Injection protection
-};
+import { InMemoryStore } from './memory/inMemoryStore';
+import { StoreInterface } from './memory/memoryInterface';
 
 type ArcJetShieldConfiguration = {
-    suspicionThreshold?: number;
-    blockDurationMs?: number;
-    detectionPatterns?: Array<RegExp>;
-    csrf: boolean;
-    xss: boolean;
-    sqlInjection: boolean;
+    suspicionThreshold?: number | ValueDeterminingMiddleware<number> ;
+    blockDurationMs?: number | ValueDeterminingMiddleware<number>;
+    detectionPatterns?: Array<RegExp> | ValueDeterminingMiddleware<Array<RegExp>>;
+    csrf: boolean | ValueDeterminingMiddleware<boolean>;
+    xss: boolean | ValueDeterminingMiddleware<boolean>;
+    sqlInjection: boolean | ValueDeterminingMiddleware<boolean>;
+    store : StoreInterface;
 };
 
-const defaultProtectionConfig: ProtectionConfig = {
+const defaultProtectionConfig: ArcJetShieldConfiguration = {
     suspicionThreshold: 5,
     blockDurationMs: 60000,
     detectionPatterns: [
@@ -30,39 +36,40 @@ const defaultProtectionConfig: ProtectionConfig = {
     csrf: true,
     xss: true,
     sqlInjection: true,
+    store : new InMemoryStore,
 };
 
-const omitUndefinedFields = <T>(config: Partial<T>): Partial<T> => {
-    const result: Partial<T> = {};
-    for (const [key, value] of Object.entries(config)) {
-        if (value !== undefined) {
-            result[key as keyof T] = value;
+const omitUndefinedOptions = (
+    passedOptions: Partial<ArcJetShieldConfiguration>,
+): Partial<ArcJetShieldConfiguration> => {
+    const omittedOptions: Partial<ArcJetShieldConfiguration> = {};
+
+    for (const k of Object.keys(passedOptions)) {
+        const key = k as keyof ArcJetShieldConfiguration;
+
+        if (passedOptions[key] !== undefined) {
+            omittedOptions[key] = passedOptions[key] as any; // TypeScript will correctly infer the type here.
         }
     }
-    return result;
+
+    return omittedOptions;
 };
 
-const parseShieldOptions = (
-    userConfig: ProtectionConfig = {},
-): ArcJetShieldConfiguration => {
-    const notUndefinedOptions = omitUndefinedFields(userConfig);
 
-    const validations = getValidations(true);
-    validations.validationsConfig();
+const parseShieldOptions = (
+    userConfig: ArcJetShieldConfiguration,
+): ArcJetShieldConfiguration => {
+    const notUndefinedOptions = omitUndefinedOptions(userConfig);
 
     const config: ArcJetShieldConfiguration = {
+        suspicionThreshold : notUndefinedOptions.suspicionThreshold ?? defaultProtectionConfig.suspicionThreshold!,
+        blockDurationMs : notUndefinedOptions.blockDurationMs ?? defaultProtectionConfig.blockDurationMs!,
+        detectionPatterns : notUndefinedOptions.detectionPatterns ?? defaultProtectionConfig.detectionPatterns!,
         csrf: notUndefinedOptions.csrf ?? defaultProtectionConfig.csrf!,
         xss: notUndefinedOptions.xss ?? defaultProtectionConfig.xss!,
         sqlInjection:
             notUndefinedOptions.sqlInjection ?? defaultProtectionConfig.sqlInjection!,
-        rateLimiting: {
-            ...defaultProtectionConfig.rateLimiting,
-            ...notUndefinedOptions.rateLimiting,
-        },
-        validations,
+        store : notUndefinedOptions.store ?? defaultProtectionConfig.store!,
     };
-
-    validations.rateLimitingConfig(config.rateLimiting); // Example: validate the rate-limiting config
-
     return config;
 };
