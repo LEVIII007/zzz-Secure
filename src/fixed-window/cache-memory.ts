@@ -1,4 +1,4 @@
-import scripts from './scripts'
+import scripts from '../token-bucket/scripts'
 import { Store } from '../types'
 import Redis, { Redis as RedisClient } from 'ioredis';
 
@@ -54,30 +54,30 @@ export class RedisStore implements Store {
     }
   }
 
-  async increment(key: string) {
-    console.log("redis used!!!")
-    const results = await this.client.eval(
-      scripts.increment,
-      1,
-      this.prefixKey(key),
-      this.resetExpiryOnChange ? '1' : '0',
-      this.windowMs.toString()
-    )
-
-    if (!Array.isArray(results)) 
-      throw new TypeError('Expected result to be array of values')
-
-    if (results.length !== 2)
-      throw new Error(`Expected 2 replies, got ${results.length}`)
-
-    const totalHits = results[0] === false ? 0 : Number(results[0])
-    const timeToExpire = Number(results[1])
-
-    return {
-      totalHits,
-      resetTime: new Date(Date.now() + timeToExpire)
+    async increment(key: string) {
+      console.log("redis used!!!")
+      const results = await this.client.eval(
+        scripts.increment,
+        1,
+        this.prefixKey(key),
+        this.resetExpiryOnChange ? '1' : '0',
+        this.windowMs.toString()
+      )
+  
+      if (!Array.isArray(results)) 
+        throw new TypeError('Expected result to be array of values')
+  
+      if (results.length !== 2)
+        throw new Error(`Expected 2 replies, got ${results.length}`)
+  
+      const totalHits = results[0] === false ? 0 : Number(results[0])
+      const timeToExpire = Number(results[1])
+  
+      return {
+        totalHits,
+        resetTime: new Date(Date.now() + timeToExpire)
+      }
     }
-  }
 
   async decrement(key: string) {
     await this.client.decr(this.prefixKey(key))
