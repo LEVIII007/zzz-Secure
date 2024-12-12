@@ -1,45 +1,60 @@
-// // /source/index.ts
-// // Export away!
 
-// // Export all the types as named exports
 // export * from './types.js'
 
 
 // export { default, default as tokenBucket } from './token-bucket/lib.js'
 
-// // Export the memory store in case someone wants to use or extend it
 // export { default as MemoryTokenBucketStore } from './token-bucket/memory.js'
 
-// // Export the fixed window store in case someone wants to use or extend it
 // export { default as FixedWindow } from './fixed-window/lib-fixed-window.js'
 // export { default as MemoryFixedWindowStore } from './fixed-window/memory-fw.js'
+// export {default as ZShield } from './shield/lib.js'
 
 
+// import tokenBucket from "./token-bucket/lib";
+// import FixedWindow from "./fixed-window/lib-fixed-window";
+// import express from "express";
+// import { ArcjetShield} from "../src/shield/lib";
+// import {InMemoryStore} from "..src//shield/memory/inMemoryStore";
 import tokenBucket from "./token-bucket/lib";
 import FixedWindow from "./fixed-window/lib-fixed-window";
 import express from "express";
-import { ArcjetShield} from "./shield/lib";
-import {InMemoryStore} from "./shield/memory/inMemoryStore";
+import ZShield from "./shield/lib";
+import { InMemoryStore } from "./shield/memory/inMemoryStore";
+import Redis, { Redis as RedisClient } from 'ioredis';
+import { RedisStore } from "./token-bucket/cache-memory";
 
 const app = express();
 
 
-const tb = tokenBucket({
-    windowMs: 15000,
-    limit: 3
-});
+
 
 const fw = FixedWindow({
     windowMs: 15000,
     limit: 3
 });
 
+const redisClient = new Redis()
+const store = new RedisStore({ 
+  client: redisClient,
+  prefix: 'myapp:rate-limit:',
+  windowMs: 60000, // 1 minute
+  resetExpiryOnChange: true 
+})
+
+const tb = tokenBucket({
+    windowMs: 15000,
+    limit: 3,
+    store : store
+});
+
+
 app.use('/tb', tb);
 app.use('/fw', fw);
 
-const shield = new ArcjetShield(new InMemoryStore());
+// const shield = new ZShield();
 
-app.use(shield.middleware);
+// app.use(shield.middleware);
 
 
 app.get('/tb', (req, res) => {

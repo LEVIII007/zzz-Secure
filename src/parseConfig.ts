@@ -118,6 +118,13 @@ const parseOptions = (
     let standardHeaders = notUndefinedOptions.standardHeaders ?? false;
     if (standardHeaders === true) standardHeaders = 'draft-6';
 
+    const defaultStore =
+        algorithmType === 0
+            ? new MemoryFixedWindowStore()
+            : new MemoryTokenBucketStore();
+
+    const store = notUndefinedOptions.store || defaultStore;
+
     // See ./types.ts#Options for a detailed description of the options and their
     // defaults.
     const config: Configuration = {
@@ -171,10 +178,7 @@ const parseOptions = (
         standardHeaders,
         // Note that this field is declared after the user's options are spread in,
         // so that this field doesn't get overriden with an un-promisified store!
-        store:
-            algorithmType === 0
-                ? new MemoryFixedWindowStore()
-                : new MemoryTokenBucketStore(),
+        store,
         // Print an error to the console if a few known misconfigurations are detected.
         validations,
     };
@@ -196,16 +200,6 @@ const parseOptions = (
     return config;
 };
 
-/**
- * Just pass on any errors for the developer to handle, usually as a HTTP 500
- * Internal Server Error.
- *
- * @param fn {RequestHandler} - The request handler for which to handle errors.
- *
- * @returns {RequestHandler} - The request handler wrapped with a `.catch` clause.
- *
- * @private
- */
 const handleAsyncErrors =
     (fn: RequestHandler): RequestHandler =>
     async (request: Request, response: Response, next: NextFunction) => {

@@ -1,0 +1,6 @@
+*
+!dist/
+!license.md
+!package.json
+!readme.md
+!tsconfig.json
