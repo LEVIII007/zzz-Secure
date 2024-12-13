@@ -1,4 +1,4 @@
-import type { Store, Options, ClientRateLimitInfo } from '../types';
+import type { Store, Options, ClientRateLimitInfo, BucketOptions } from '../types';
 
 /**
  * The record that stores information about a client - namely, the remaining capacity
@@ -41,8 +41,8 @@ export default class MemoryLeakyBucketStore implements Store {
      *
      * @param options {Options} - The options used to setup the middleware.
      */
-    init(options: Options): void {
-        this.bucketCapacity = options.max ?? 10; // Default to 10 hits if max not provided
+    init(options: BucketOptions): void {
+        this.bucketCapacity = options.maxTokens ?? 10; // Default to 10 hits if max not provided
         this.leakRate = this.bucketCapacity / (options.windowMs ?? 60000); // Default to 1 minute window
     }
 
@@ -61,7 +61,7 @@ export default class MemoryLeakyBucketStore implements Store {
 
         this.updateBucket(client);
         return {
-            remaining: client.remaining,
+           totalHits: client.remaining,
             resetTime: new Date(client.lastUpdated + (this.bucketCapacity / this.leakRate)),
         };
     }
@@ -84,7 +84,7 @@ export default class MemoryLeakyBucketStore implements Store {
         // Check if the bucket has capacity
         if (client.remaining <= 0) {
             return {
-                remaining: 0,
+               totalHits: 0,
                 resetTime: new Date(client.lastUpdated + (this.bucketCapacity / this.leakRate)),
             };
         }
@@ -92,7 +92,7 @@ export default class MemoryLeakyBucketStore implements Store {
         // Increment the hits and decrease the remaining capacity
         client.remaining--;
         return {
-            remaining: client.remaining,
+          totalHits: client.remaining,
             resetTime: new Date(client.lastUpdated + (this.bucketCapacity / this.leakRate)),
         };
     }

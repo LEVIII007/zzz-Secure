@@ -1,5 +1,4 @@
-// /source/memory-store.ts
-// A memory store for hit counts
+
 
 import type { Store, Options, ClientRateLimitInfo } from '../types'
 
@@ -19,117 +18,193 @@ type Client = {
  *
  * @public
  */
-
 export default class MemoryFixedWindowStore implements Store {
 	/**
-	 * The duration of the fixed window in milliseconds.
+	 * The duration of time before which all hit counts are reset (in milliseconds).
 	 */
 	windowMs!: number
 
 	/**
-	 * Stores client usage data. The key is the client identifier, such as an IP address.
+	 * These two maps store usage (requests) and reset time by key (for example, IP
+	 * addresses or API keys).
+	 *
+	 * They are split into two to avoid having to iterate through the entire set to
+	 * determine which ones need reset. Instead, `Client`s are moved from `previous`
+	 * to `current` as they hit the endpoint. Once `windowMs` has elapsed, all clients
+	 * left in `previous`, i.e., those that have not made any recent requests, are
+	 * known to be expired and can be deleted in bulk.
 	 */
-	clients = new Map<string, Client>()
+	previous = new Map<string, Client>()
+	current = new Map<string, Client>()
 
 	/**
-	 * A reference to the active timer that resets all clients after each window.
+	 * A reference to the active timer.
 	 */
 	interval?: NodeJS.Timeout
 
 	/**
-	 * Confirms that keys incremented in one instance of MemoryStore cannot affect others.
+	 * Confirmation that the keys incremented in once instance of MemoryStore
+	 * cannot affect other instances.
 	 */
 	localKeys = true
 
 	/**
-	 * Initializes the store and sets up the interval to clear data at the end of each window.
+	 * Method that initializes the store.
 	 *
-	 * @param options {Options} - Configuration options passed to the middleware.
+	 * @param options {Options} - The options used to setup the middleware.
 	 */
 	init(options: Options): void {
+		// Get the duration of a window from the options.
 		this.windowMs = options.windowMs
 
-		// Clear any previous interval if re-initialized
+		// Indicates that init was called more than once.
+		// Could happen if a store was shared between multiple instances.
 		if (this.interval) clearInterval(this.interval)
 
-		// Set up the interval to reset all clients after `windowMs`
-		this.interval = setInterval(() => this.resetAll(), this.windowMs)
+		// Reset all clients left in previous every `windowMs`.
+		this.interval = setInterval(() => {
+			this.clearExpired()
+		}, this.windowMs)
 
-		// Allow the interval to not prevent the process from exiting
+		// Cleaning up the interval will be taken care of by the `shutdown` method.
 		if (this.interval.unref) this.interval.unref()
 	}
 
 	/**
-	 * Retrieves the hit count and reset time for a given client.
+	 * Method to fetch a client's hit count and reset time.
 	 *
-	 * @param key {string} - The client's unique identifier (e.g., IP).
+	 * @param key {string} - The identifier for a client.
 	 *
-	 * @returns {ClientRateLimitInfo | undefined} - The client's rate limit info.
+	 * @returns {ClientRateLimitInfo | undefined} - The number of hits and reset time for that client.
+	 *
+	 * @public
 	 */
 	async get(key: string): Promise<ClientRateLimitInfo | undefined> {
-		return this.clients.get(key)
+		return this.current.get(key) ?? this.previous.get(key)
 	}
 
 	/**
-	 * Increments the hit counter for a client.
+	 * Method to increment a client's hit counter.
 	 *
-	 * @param key {string} - The client's unique identifier (e.g., IP).
+	 * @param key {string} - The identifier for a client.
 	 *
-	 * @returns {ClientRateLimitInfo} - The updated hit count and reset time for the client.
+	 * @returns {ClientRateLimitInfo} - The number of hits and reset time for that client.
+	 *
+	 * @public
 	 */
 	async increment(key: string): Promise<ClientRateLimitInfo> {
+		const client = this.getClient(key)
+
 		const now = Date.now()
-
-		// Calculate the start and reset time of the current fixed window
-		const windowStart = Math.floor(now / this.windowMs) * this.windowMs
-		const resetTime = new Date(windowStart + this.windowMs)
-
-		let client = this.clients.get(key)
-
-		// If no client exists or reset time has passed, create a new client entry
-		if (!client || client.resetTime.getTime() <= now) {
-			client = { totalHits: 0, resetTime }
-			this.clients.set(key, client)
+		if (client.resetTime.getTime() <= now) {
+			this.resetClient(client, now)
 		}
 
-		// Increment the hit count
 		client.totalHits++
+		return client
+	}
+
+	/**
+	 * Method to decrement a client's hit counter.
+	 *
+	 * @param key {string} - The identifier for a client.
+	 *
+	 * @public
+	 */
+	async decrement(key: string): Promise<void> {
+		const client = this.getClient(key)
+
+		if (client.totalHits > 0) client.totalHits--
+	}
+
+	/**
+	 * Method to reset a client's hit counter.
+	 *
+	 * @param key {string} - The identifier for a client.
+	 *
+	 * @public
+	 */
+	async resetKey(key: string): Promise<void> {
+		this.current.delete(key)
+		this.previous.delete(key)
+	}
+
+	/**
+	 * Method to reset everyone's hit counter.
+	 *
+	 * @public
+	 */
+	async resetAll(): Promise<void> {
+		this.current.clear()
+		this.previous.clear()
+	}
+
+	/**
+	 * Method to stop the timer (if currently running) and prevent any memory
+	 * leaks.
+	 *
+	 * @public
+	 */
+	shutdown(): void {
+		clearInterval(this.interval)
+		void this.resetAll()
+	}
+
+	/**
+	 * Recycles a client by setting its hit count to zero, and reset time to
+	 * `windowMs` milliseconds from now.
+	 *
+	 * NOT to be confused with `#resetKey()`, which removes a client from both the
+	 * `current` and `previous` maps.
+	 *
+	 * @param client {Client} - The client to recycle.
+	 * @param now {number} - The current time, to which the `windowMs` is added to get the `resetTime` for the client.
+	 *
+	 * @return {Client} - The modified client that was passed in, to allow for chaining.
+	 */
+	private resetClient(client: Client, now = Date.now()): Client {
+		client.totalHits = 0
+		client.resetTime.setTime(now + this.windowMs)
 
 		return client
 	}
 
 	/**
-	 * Decrements the hit counter for a client.
+	 * Retrieves or creates a client, given a key. Also ensures that the client being
+	 * returned is in the `current` map.
 	 *
-	 * @param key {string} - The client's unique identifier (e.g., IP).
-	 */
-	async decrement(key: string): Promise<void> {
-		const client = this.clients.get(key)
-		if (client && client.totalHits > 0) client.totalHits--
-	}
-
-	/**
-	 * Resets the hit counter for a specific client.
+	 * @param key {string} - The key under which the client is (or is to be) stored.
 	 *
-	 * @param key {string} - The client's unique identifier (e.g., IP).
+	 * @returns {Client} - The requested client.
 	 */
-	async resetKey(key: string): Promise<void> {
-		this.clients.delete(key)
+	private getClient(key: string): Client {
+		// If we already have a client for that key in the `current` map, return it.
+		if (this.current.has(key)) return this.current.get(key)!
+
+		let client
+		if (this.previous.has(key)) {
+			// If it's in the `previous` map, take it out
+			client = this.previous.get(key)!
+			this.previous.delete(key)
+		} else {
+			// Finally, if we don't have an existing entry for this client, create a new one
+			client = { totalHits: 0, resetTime: new Date() }
+			this.resetClient(client)
+		}
+
+		// Make sure the client is bumped into the `current` map, and return it.
+		this.current.set(key, client)
+		return client
 	}
 
 	/**
-	 * Clears all hit counters, effectively resetting the rate limit for all clients.
+	 * Move current clients to previous, create a new map for current.
+	 *
+	 * This function is called every `windowMs`.
 	 */
-	async resetAll(): Promise<void> {
-		this.clients.clear()
-	}
-
-	/**
-	 * Stops the interval timer to prevent memory leaks.
-	 */
-	shutdown(): void {
-		if (this.interval) clearInterval(this.interval)
-		void this.resetAll()
+	private clearExpired(): void {
+		// At this point, all clients in previous are expired
+		this.previous = this.current
+		this.current = new Map()
 	}
 }
-

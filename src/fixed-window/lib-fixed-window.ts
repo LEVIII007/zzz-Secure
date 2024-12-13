@@ -1,6 +1,3 @@
-// /source/lib.ts
-// The option parser and rate limiting middleware
-
 import type { Request, Response, NextFunction, RequestHandler } from 'express'
 import type {
 	Options,
@@ -19,7 +16,10 @@ import {
 	setDraft7Headers,
 	setRetryAfterHeader,
 } from '../header'
+
 import { parseOptions, handleAsyncErrors, getOptionsFromConfig } from '../parseConfig'
+
+
 
 /**
  *
@@ -31,11 +31,11 @@ import { parseOptions, handleAsyncErrors, getOptionsFromConfig } from '../parseC
  *
  * @public
  */
-const FixedWindow = (
+const fixedWindow = (
 	passedOptions?: Partial<Options>,
 ): RateLimitRequestHandler => {
 	// Parse the options and add the default values for unspecified options
-	const config = parseOptions(passedOptions ?? {}, 0)
+	const config = parseOptions(passedOptions ?? {}, 1)
 	const options = getOptionsFromConfig(config)
 
 	// The limiter shouldn't be created in response to a request (usually)
@@ -62,15 +62,13 @@ const FixedWindow = (
 			// Get a unique key for the client
 			const key = await config.keyGenerator(request, response)
 
-			// Increment the client's hit counter in the store.
+			// Increment the client's hit counter by one.
 			let totalHits = 0
-			let resetTime: Date | undefined
+			let resetTime
 			try {
-				const { totalHits: hits, resetTime: windowResetTime } =
-					await config.store.increment(key)
-
-				totalHits = hits
-				resetTime = windowResetTime
+				const incrementResult = await config.store.increment(key)
+				totalHits = incrementResult.totalHits
+				resetTime = incrementResult.resetTime
 			} catch (error) {
 				if (config.passOnStoreError) {
 					console.error(
@@ -84,10 +82,13 @@ const FixedWindow = (
 				throw error
 			}
 
-			// Validate total hits
+			// Make sure that -
+			// - the hit count is incremented only by one.
+			// - the returned hit count is a positive integer.
 			config.validations.positiveHits(totalHits)
+			config.validations.singleCount(request, config.store, key)
 
-			// Get the limit (max number of hits) for each client
+			// Get the limit (max number of hits) for each client.
 			const retrieveLimit =
 				typeof config.limit === 'function'
 					? config.limit(request, response)
@@ -95,7 +96,7 @@ const FixedWindow = (
 			const limit = await retrieveLimit
 			config.validations.limit(limit)
 
-			// Define the rate limit info for the client
+			// Define the rate limit info for the client.
 			const info: RateLimitInfo = {
 				limit,
 				used: totalHits,
@@ -103,15 +104,19 @@ const FixedWindow = (
 				resetTime,
 			}
 
-			// Attach rate limit information to the request
+			// Set the `current` property on the object, but hide it from iteration
+			// and `JSON.stringify`. See the `./types#RateLimitInfo` for details.
 			Object.defineProperty(info, 'current', {
 				configurable: false,
 				enumerable: false,
 				value: totalHits,
 			})
+
+			// Set the rate limit information on the augmented request object
 			augmentedRequest[config.requestPropertyName] = info
 
-			// Set standardized rate-limiting headers
+			// Set the standardized `RateLimit-*` headers on the response object if
+			// enabled.
 			if (config.standardHeaders && !response.headersSent) {
 				if (config.standardHeaders === 'draft-6') {
 					setDraft6Headers(response, info, config.windowMs)
@@ -121,10 +126,43 @@ const FixedWindow = (
 				}
 			}
 
-			// Disable validations after they have been applied
+			// If we are to skip failed/successfull requests, decrement the
+			// counter accordingly once we know the status code of the request
+			if (config.skipFailedRequests || config.skipSuccessfulRequests) {
+				let decremented = false
+				const decrementKey = async () => {
+					if (!decremented) {
+						await config.store.decrement(key)
+						decremented = true
+					}
+				}
+
+				if (config.skipFailedRequests) {
+					response.on('finish', async () => {
+						if (!(await config.requestWasSuccessful(request, response)))
+							await decrementKey()
+					})
+					response.on('close', async () => {
+						if (!response.writableEnded) await decrementKey()
+					})
+					response.on('error', async () => {
+						await decrementKey()
+					})
+				}
+
+				if (config.skipSuccessfulRequests) {
+					response.on('finish', async () => {
+						if (await config.requestWasSuccessful(request, response))
+							await decrementKey()
+					})
+				}
+			}
+
+			// Disable the validations, since they should have run at least once by now.
 			config.validations.disable()
 
-			// Handle requests exceeding the rate limit
+			// If the client has exceeded their rate limit, set the Retry-After header
+			// and call the `handler` function.
 			if (totalHits > limit) {
 				if (config.standardHeaders) {
 					setRetryAfterHeader(response, info, config.windowMs)
@@ -138,11 +176,12 @@ const FixedWindow = (
 		},
 	)
 
-	// Export store functions for resetting and fetching rate limit info
 	const getThrowFn = () => {
 		throw new Error('The current store does not support the get/getKey method')
 	}
 
+	// Export the store's function to reset and fetch the rate limit info for a
+	// client based on their identifier.
 	;(middleware as RateLimitRequestHandler).resetKey =
 		config.store.resetKey.bind(config.store)
 	;(middleware as RateLimitRequestHandler).getKey =
@@ -154,4 +193,4 @@ const FixedWindow = (
 }
 
 // Export it to the world!
-export default FixedWindow
+export default fixedWindow
