@@ -34,25 +34,26 @@ const fw = FixedWindow({
     limit: 3
 });
 
-const redisClient = new Redis()
-const store = new RedisStore({ 
-  client: redisClient,
-  prefix: 'myapp:rate-limit:',
-  windowMs: 60000, // 1 minute
-  resetExpiryOnChange: true 
-})
+// // const redisClient = new Redis()
+// // const store = new RedisStore({ 
+// //   client: redisClient,
+// //   prefix: 'myapp:rate-limit:',
+// //   windowMs: 60000, // 1 minute
+// //   resetExpiryOnChange: true 
+// // })
 
 const tb = tokenBucket({
     windowMs: 15000,
     limit: 3,
-    store : store
 });
 
 
 app.use('/tb', tb);
 app.use('/fw', fw);
 
-// const shield = new ZShield();
+app.use(express.json());
+
+const shield = new ZShield();
 
 // app.use(shield.middleware);
 
@@ -73,9 +74,7 @@ app.post('/tb', (req, res) => {
     res.send({
         status: "ok"
     });
-}
-    
-    );
+});
 
 
 

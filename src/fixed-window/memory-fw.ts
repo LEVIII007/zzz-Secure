@@ -23,17 +23,6 @@ export default class MemoryFixedWindowStore implements Store {
 	 * The duration of time before which all hit counts are reset (in milliseconds).
 	 */
 	windowMs!: number
-
-	/**
-	 * These two maps store usage (requests) and reset time by key (for example, IP
-	 * addresses or API keys).
-	 *
-	 * They are split into two to avoid having to iterate through the entire set to
-	 * determine which ones need reset. Instead, `Client`s are moved from `previous`
-	 * to `current` as they hit the endpoint. Once `windowMs` has elapsed, all clients
-	 * left in `previous`, i.e., those that have not made any recent requests, are
-	 * known to be expired and can be deleted in bulk.
-	 */
 	previous = new Map<string, Client>()
 	current = new Map<string, Client>()
 
@@ -94,6 +83,8 @@ export default class MemoryFixedWindowStore implements Store {
 	 */
 	async increment(key: string): Promise<ClientRateLimitInfo> {
 		const client = this.getClient(key)
+		console.log('increment!!!')
+		console.log(client)
 
 		const now = Date.now()
 		if (client.resetTime.getTime() <= now) {
@@ -101,6 +92,7 @@ export default class MemoryFixedWindowStore implements Store {
 		}
 
 		client.totalHits++
+		this.current.set(key, client)
 		return client
 	}
 

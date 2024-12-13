@@ -8,11 +8,8 @@ type Client = {
     lastRefillTime: number
 }
 
-/**
- * A `Store` that implements the Token Bucket algorithm for rate-limiting.
- *
- * @public
- */
+
+
 export default class MemoryTokenBucketStore implements BucketStore {
     /**
      * The duration of time (in milliseconds) for refilling tokens.
@@ -46,9 +43,9 @@ export default class MemoryTokenBucketStore implements BucketStore {
      * @param options {Options} - The options used to set up the middleware.
      */
     init(options:  BucketOptions): void {
-        this.refillInterval = options.windowMs
-        this.bucketCapacity = options.maxTokens ?? 0 
-        this.tokensPerInterval = this.bucketCapacity / (this.refillInterval / 1000)
+        this.refillInterval = options.windowMs ?? 15000
+        this.bucketCapacity = options.maxTokens ?? 10 
+        this.tokensPerInterval = this.bucketCapacity / (this.refillInterval)
     }
 
     /**
@@ -81,16 +78,22 @@ export default class MemoryTokenBucketStore implements BucketStore {
      * @public
      */
     async increment(key: string): Promise<ClientRateLimitInfo> {
+        console.debug(`Incrementing token bucket for key: ${key}`)
         const client = this.getClient(key)
         const now = Date.now()
+        console.debug(`Current time: ${now}, Last refill time: ${client.lastRefillTime}`)
         this.refillTokens(client, now)
+        console.debug(`Tokens after refill: ${client.tokens}`)
 
         if (client.tokens > 0) {
             client.tokens--
+            console.debug(`Token consumed. Remaining tokens: ${client.tokens}`)
+        } else {
+            console.debug(`No tokens available to consume for key: ${key}`)
         }
 
         return {
-           totalHits: client.tokens,
+            totalHits: client.tokens,
             resetTime: new Date(client.lastRefillTime + this.refillInterval),
         }
     }

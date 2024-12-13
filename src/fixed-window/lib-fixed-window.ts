@@ -32,16 +32,19 @@ import { parseOptions, handleAsyncErrors, getOptionsFromConfig } from '../parseC
  * @public
  */
 const fixedWindow = (
-	passedOptions?: Partial<Options>,
+	passedOptions?: Partial<Options>
 ): RateLimitRequestHandler => {
+	console.log('fixedWindow!!!')
 	// Parse the options and add the default values for unspecified options
 	const config = parseOptions(passedOptions ?? {}, 1)
 	const options = getOptionsFromConfig(config)
 
+	console.log(options)
+
 	// The limiter shouldn't be created in response to a request (usually)
-	config.validations.creationStack(config.store)
+	// config.validations.creationStack(config.store)
 	// The store instance shouldn't be shared across multiple limiters
-	config.validations.unsharedStore(config.store)
+	// config.validations.unsharedStore(config.store)
 
 	// Call the `init` method on the store, if it exists
 	if (typeof config.store.init === 'function') config.store.init(options)
@@ -49,12 +52,15 @@ const fixedWindow = (
 	// Then return the actual middleware
 	const middleware = handleAsyncErrors(
 		async (request: Request, response: Response, next: NextFunction) => {
+			console.log('middleware!!!')
 			// First check if we should skip the request
 			const skip = await config.skip(request, response)
 			if (skip) {
+				console.log('skip!!!')
 				next()
 				return
 			}
+
 
 			// Create an augmented request
 			const augmentedRequest = request as AugmentedRequest
@@ -62,11 +68,14 @@ const fixedWindow = (
 			// Get a unique key for the client
 			const key = await config.keyGenerator(request, response)
 
+			console.log(key)
+
 			// Increment the client's hit counter by one.
 			let totalHits = 0
 			let resetTime
 			try {
 				const incrementResult = await config.store.increment(key)
+				console.log(incrementResult)
 				totalHits = incrementResult.totalHits
 				resetTime = incrementResult.resetTime
 			} catch (error) {

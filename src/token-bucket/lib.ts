@@ -24,7 +24,7 @@ import { parseOptions, handleAsyncErrors, getOptionsFromConfig } from '../parseC
 const tokenBucket = (
 	passedOptions?: Partial<BucketOptions>,
 ): RateLimitRequestHandler => {
-	const config = parseOptions(passedOptions ?? {}, 1);
+	const config = parseOptions(passedOptions ?? {}, 0);
 	const options = getOptionsFromConfig(config);
 
 	// Ensure proper store validation

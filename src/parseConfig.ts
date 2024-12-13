@@ -94,13 +94,15 @@ const parseOptions = (
     passedOptions: Partial<Options>,
     algorithmType: number,
 ): Configuration => {
+    console.log('parseOptions!!!')
+    console.log(algorithmType)
     // Passing undefined should be equivalent to not passing an option at all, so we'll
     // omit all fields where their value is undefined.
     const notUndefinedOptions: Partial<Options> =
         omitUndefinedOptions(passedOptions);
 
     // Create the validator before even parsing the rest of the options.
-    const validations = getValidations(notUndefinedOptions?.validate ?? true);
+    const validations = getValidations(notUndefinedOptions?.validate ?? false);
     validations.validationsConfig();
 
     // Warn for the deprecated options. Note that these options have been removed
@@ -119,11 +121,13 @@ const parseOptions = (
     if (standardHeaders === true) standardHeaders = 'draft-6';
 
     const defaultStore =
-        algorithmType === 0
+        algorithmType === 1
             ? new MemoryFixedWindowStore()
             : new MemoryTokenBucketStore();
 
-    const store = notUndefinedOptions.store || defaultStore;
+    console.log(defaultStore)
+
+    const store = notUndefinedOptions.store ?? defaultStore;
 
     // See ./types.ts#Options for a detailed description of the options and their
     // defaults.

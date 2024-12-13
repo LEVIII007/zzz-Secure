@@ -28,11 +28,24 @@ export function isAttackDetected(
     input: object,
     patterns: RegExp[]
 ): boolean {
-    const values = Object.values(input);
-    return values.some(value =>
-        typeof value === "string" && patterns.some(pattern => pattern.test(value))
-    );
+    console.log("isAttackDetected")
+    console.log(input)
+    function scanValues(values: any[]): boolean {
+        return values.some(value => {
+            if (typeof value === 'string') {
+                return patterns.some(pattern => pattern.test(value));
+            } else if (typeof value === 'object' && value !== null) {
+                // Recursively check nested objects or arrays
+                return isAttackDetected(value, patterns);
+            } else {
+                return false;
+            }
+        });
+    }
+
+    return scanValues(Object.values(input));
 }
+
 
 export function detectMaliciousRequest(
     req: any,
@@ -41,10 +54,12 @@ export function detectMaliciousRequest(
     const attackTypes: string[] = [];
 
     // Check enabled attack detection options
+    console.log(req.body)
     if (options.xss && isAttackDetected({ ...req.query, ...req.body, ...req.params }, detectXSSPatterns)) {
         attackTypes.push("XSS");
     }
     if (options.sqlInjection && isAttackDetected({ ...req.query, ...req.body, ...req.params }, detectSQLInjectionPatterns)) {
+        console.log("SQL Injection detected")
         attackTypes.push("SQL Injection");
     }
     if (options.lfi && isAttackDetected({ ...req.query, ...req.body, ...req.params }, detectLfiPatterns)) {
@@ -64,6 +79,7 @@ export default class ZShield {
     private options: ShieldOptions;
 
     constructor(options: Partial<ShieldOptions> = {}) {
+        console.log("created!!")
         this.options = {
             message: "Access denied due to suspicious activity.",
             suspicionThreshold: 5,
@@ -86,6 +102,8 @@ export default class ZShield {
     middleware = handleAsyncErrors(
         async (req: Request, res: Response, next: NextFunction): Promise<void> => {
             const clientIP = req.ip;
+            console.log("middleware!!")
+            console.log(clientIP)
 
             if (!clientIP) {
                 res.status(403).json({ error: this.options.message });
@@ -102,6 +120,7 @@ export default class ZShield {
             // Detect attack patterns
             const { isSuspicious, attackTypes } = detectMaliciousRequest(req, this.options);
             if (!isSuspicious) {
+                console.log("not suspicious")
                 next();
                 return;
             }

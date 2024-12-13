@@ -106,84 +106,23 @@ export type RateLimitRequestHandler = RequestHandler & {
  * An interface that all hit counter stores must implement.
  */
 export type Store = {
-	/**
-	 * Method that initializes the store, and has access to the options passed to
-	 * the middleware too.
-	 *
-	 * @param options {Options} - The options used to setup the middleware.
-	 */
 	init?: (options: Options) => void
 
-	/**
-	 * Method to fetch a client's hit count and reset time.
-	 *
-	 * @param key {string} - The identifier for a client.
-	 *
-	 * @returns {ClientRateLimitInfo} - The number of hits and reset time for that client.
-	 */
 	get?: (
 		key: string,
 	) =>
 		| Promise<ClientRateLimitInfo | undefined>
 		| ClientRateLimitInfo
 		| undefined
-
-	/**
-	 * Method to increment a client's hit counter.
-	 *
-	 * @param key {string} - The identifier for a client.
-	 *
-	 * @returns {IncrementResponse | undefined} - The number of hits and reset time for that client.
-	 */
 	increment: (key: string) => Promise<IncrementResponse> | IncrementResponse
-
-	/**
-	 * Method to decrement a client's hit counter.
-	 *
-	 * @param key {string} - The identifier for a client.
-	 */
 	decrement: (key: string) => Promise<void> | void
-
-	/**
-	 * Method to reset a client's hit counter.
-	 *
-	 * @param key {string} - The identifier for a client.
-	 */
 	resetKey: (key: string) => Promise<void> | void
-
-	/**
-	 * Method to reset everyone's hit counter.
-	 */
 	resetAll?: () => Promise<void> | void
-
-	/**
-	 * Method to shutdown the store, stop timers, and release all resources.
-	 */
 	shutdown?: () => Promise<void> | void
-
-	/**
-	 * Flag to indicate that keys incremented in one instance of this store can
-	 * not affect other instances. Typically false if a database is used, true for
-	 * MemoryStore.
-	 *
-	 * Used to help detect double-counting misconfigurations.
-	 */
 	localKeys?: boolean
-
-	/**
-	 * Optional value that the store prepends to keys
-	 *
-	 * Used by the double-count check to avoid false-positives when a key is counted twice, but with different prefixes
-	 */
 	prefix?: string
 }
 export type BucketStore = {
-	/**
-	 * Method that initializes the store, and has access to the options passed to
-	 * the middleware too.
-	 *
-	 * @param options {Options} - The options used to set up the middleware.
-	 */
 	init?: (options: Options) => void;
   
 	/**
@@ -199,58 +138,14 @@ export type BucketStore = {
 	  | Promise<ClientRateLimitInfo | undefined>
 	  | ClientRateLimitInfo
 	  | undefined;
-  
-	/**
-	 * Method to attempt to consume a token from the client's bucket.
-	 * It will return the remaining tokens and the reset time.
-	 *
-	 * @param key {string} - The identifier for a client.
-	 *
-	 * @returns {IncrementResponse} - The number of remaining tokens and reset time for that client.
-	 */
 	
-  
-	/**
-	 * Method to increment (refill) the client's token bucket.
-	 * Typically used to refill tokens over time.
-	 *
-	 * @param key {string} - The identifier for a client.
-	 *
-	 * @returns {IncrementResponse} - The number of tokens after refill and the reset time for that client.
-	 */
 	refill?: (key: string) => Promise<IncrementResponse> | IncrementResponse;
   
-	/**
-	 * Method to reset a client's token bucket.
-	 *
-	 * @param key {string} - The identifier for a client.
-	 */
+
 	resetKey: (key: string) => Promise<void> | void;
-  
-	/**
-	 * Method to reset all token buckets for all clients.
-	 */
 	resetAll?: () => Promise<void> | void;
-  
-	/**
-	 * Method to shut down the store, stop timers, and release all resources.
-	 */
 	shutdown?: () => Promise<void> | void;
-  
-	/**
-	 * Flag to indicate that keys incremented in one instance of this store can
-	 * not affect other instances. Typically false if a database is used, true for
-	 * MemoryStore.
-	 *
-	 * Used to help detect double-counting misconfigurations.
-	 */
 	localKeys?: boolean;
-  
-	/**
-	 * Optional value that the store prepends to keys.
-	 *
-	 * Used by the double-count check to avoid false-positives when a key is counted twice, but with different prefixes.
-	 */
 	prefix?: string;
   }
   
@@ -270,311 +165,59 @@ export type EnabledValidations = {
  * The configuration options for the rate limiter.
  */
 export type Options = {
-	/**
-	 * How long we should remember the requests.
-	 *
-	 * Defaults to `60000` ms (= 1 minute).
-	 */
+
 	windowMs: number
-
-	/**
-	 * The maximum number of connections to allow during the `window` before
-	 * rate limiting the client.
-	 *
-	 * Can be the limit itself as a number or express middleware that parses
-	 * the request and then figures out the limit.
-	 *
-	 * Defaults to `5`.
-	 */
 	limit: number | ValueDeterminingMiddleware<number>
-
-	/**
-	 * The response body to send back when a client is rate limited.
-	 *
-	 * Defaults to `'Too many requests, please try again later.'`
-	 */
 	message: any | ValueDeterminingMiddleware<any>
-
-	/**
-	 * The HTTP status code to send back when a client is rate limited.
-	 *
-	 * Defaults to `HTTP 429 Too Many Requests` (RFC 6585).
-	 */
 	statusCode: number
-
-	/**
-	 * Whether to send `X-RateLimit-*` headers with the rate limit and the number
-	 * of requests.
-	 *
-	 * Defaults to `true` (for backward compatibility).
-	 */
-
-	/**
-	 * Whether to enable support for the standardized rate limit headers (`RateLimit-*`).
-	 *
-	 * Defaults to `false` (for backward compatibility, but its use is recommended).
-	 */
 	standardHeaders: boolean | DraftHeadersVersion
-
-	/**
-	 * The name of the property on the request object to store the rate limit info.
-	 *
-	 * Defaults to `rateLimit`.
-	 */
 	requestPropertyName: string
-
-	/**
-	 * If `true`, the library will (by default) skip all requests that have a 4XX
-	 * or 5XX status.
-	 *
-	 * Defaults to `false`.
-	 */
 	skipFailedRequests: boolean
-
-	/**
-	 * If `true`, the library will (by default) skip all requests that have a
-	 * status code less than 400.
-	 *
-	 * Defaults to `false`.
-	 */
 	skipSuccessfulRequests: boolean
-
-	/**
-	 * Method to generate custom identifiers for clients.
-	 *
-	 * By default, the client's IP address is used.
-	 */
 	keyGenerator: ValueDeterminingMiddleware<string>
-
-	/**
-	 * Express request handler that sends back a response when a client is
-	 * rate-limited.
-	 *
-	 * By default, sends back the `statusCode` and `message` set via the options.
-	 */
 	handler: RateLimitExceededEventHandler
-
-	/**
-	 * Method (in the form of middleware) to determine whether or not this request
-	 * counts towards a client's quota.
-	 *
-	 * By default, skips no requests.
-	 */
 	skip: ValueDeterminingMiddleware<boolean>
-
-	/**
-	 * Method to determine whether or not the request counts as 'succesful'. Used
-	 * when either `skipSuccessfulRequests` or `skipFailedRequests` is set to true.
-	 *
-	 * By default, requests with a response status code less than 400 are considered
-	 * successful.
-	 */
 	requestWasSuccessful: ValueDeterminingMiddleware<boolean>
-
-	/**
-	 * The `Store` to use to store the hit count for each client.
-	 *
-	 * By default, the built-in `MemoryStore` will be used.
-	 */
 	store: Store
-
-	/**
-	 * The list of validation checks that should run.
-	 */
 	validate: boolean | EnabledValidations
-
-	/**
-	 * Whether to send `X-RateLimit-*` headers with the rate limit and the number
-	 * of requests.
-	 *
-	 * @deprecated 6.x - This option was renamed to `legacyHeaders`.
-	 */
 	headers?: boolean
-
-	/**
-	 * The maximum number of connections to allow during the `window` before
-	 * rate limiting the client.
-	 *
-	 * Can be the limit itself as a number or express middleware that parses
-	 * the request and then figures out the limit.
-	 *
-	 * @deprecated 7.x - This option was renamed to `limit`. However, it will not
-	 * be removed from the library in the foreseeable future.
-	 */
 	max?: number | ValueDeterminingMiddleware<number>
-
-	/**
-	 * If the Store generates an error, allow the request to pass.
-	 */
 	passOnStoreError: boolean
 }
 
 export type BucketOptions = {
-	/**
-	 * How long we should remember the requests.
-	 *
-	 * Defaults to `60000` ms (= 1 minute).
-	 */
 	windowMs: number
-
-	/**
-	 * The maximum number of connections to allow during the `window` before
-	 * rate limiting the client.
-	 *
-	 * Can be the limit itself as a number or express middleware that parses
-	 * the request and then figures out the limit.
-	 *
-	 * Defaults to `5`.
-	 */
 	limit: number | ValueDeterminingMiddleware<number>
-
-	/**
-	 * The response body to send back when a client is rate limited.
-	 *
-	 * Defaults to `'Too many requests, please try again later.'`
-	 */
 	message: any | ValueDeterminingMiddleware<any>
-
-	/**
-	 * The HTTP status code to send back when a client is rate limited.
-	 *
-	 * Defaults to `HTTP 429 Too Many Requests` (RFC 6585).
-	 */
 	statusCode: number
-
-	/**
-	 * Whether to send `X-RateLimit-*` headers with the rate limit and the number
-	 * of requests.
-	 *
-	 * Defaults to `true` (for backward compatibility).
-	 */
-
-	/**
-	 * Whether to enable support for the standardized rate limit headers (`RateLimit-*`).
-	 *
-	 * Defaults to `false` (for backward compatibility, but its use is recommended).
-	 */
 	standardHeaders: boolean | DraftHeadersVersion
-
-	/**
-	 * The name of the property on the request object to store the rate limit info.
-	 *
-	 * Defaults to `rateLimit`.
-	 */
 	requestPropertyName: string
-
-	/**
-	 * If `true`, the library will (by default) skip all requests that have a 4XX
-	 * or 5XX status.
-	 *
-	 * Defaults to `false`.
-	 */
 	skipFailedRequests: boolean
-
-	/**
-	 * If `true`, the library will (by default) skip all requests that have a
-	 * status code less than 400.
-	 *
-	 * Defaults to `false`.
-	 */
 	skipSuccessfulRequests: boolean
-
-	/**
-	 * Method to generate custom identifiers for clients.
-	 *
-	 * By default, the client's IP address is used.
-	 */
 	keyGenerator: ValueDeterminingMiddleware<string>
-
-	/**
-	 * Express request handler that sends back a response when a client is
-	 * rate-limited.
-	 *
-	 * By default, sends back the `statusCode` and `message` set via the options.
-	 */
 	handler: RateLimitExceededEventHandler
-
-	/**
-	 * Method (in the form of middleware) to determine whether or not this request
-	 * counts towards a client's quota.
-	 *
-	 * By default, skips no requests.
-	 */
 	skip: ValueDeterminingMiddleware<boolean>
-
-	/**
-	 * Method to determine whether or not the request counts as 'succesful'. Used
-	 * when either `skipSuccessfulRequests` or `skipFailedRequests` is set to true.
-	 *
-	 * By default, requests with a response status code less than 400 are considered
-	 * successful.
-	 */
 	requestWasSuccessful: ValueDeterminingMiddleware<boolean>
-
-	/**
-	 * The `Store` to use to store the hit count for each client.
-	 *
-	 * By default, the built-in `MemoryStore` will be used.
-	 */
 	store: Store
-
-	/**
-	 * The list of validation checks that should run.
-	 */
 	validate: boolean | EnabledValidations
-
-	/**
-	 * Whether to send `X-RateLimit-*` headers with the rate limit and the number
-	 * of requests.
-	 *
-	 * @deprecated 6.x - This option was renamed to `legacyHeaders`.
-	 */
 	headers?: boolean
-
-	/**
-	 * The maximum number of connections to allow during the `window` before
-	 * rate limiting the client.
-	 *
-	 * Can be the limit itself as a number or express middleware that parses
-	 * the request and then figures out the limit.
-	 *
-	 * @deprecated 7.x - This option was renamed to `limit`. However, it will not
-	 * be removed from the library in the foreseeable future.
-	 */
 	max?: number | ValueDeterminingMiddleware<number>
-
-	/**
-	 * If the Store generates an error, allow the request to pass.
-	 */
 	passOnStoreError: boolean
-
-	maxTokens?: number;  // Maximum number of tokens in the bucket
-    refillRate?: number;  // Rate at which tokens are refilled
+	maxTokens?: number
+	refillRate?: number
 }
 
 /**
- * The extended request object that includes information about the client's
- * rate limit.
+ * The configuration options for the rate limiter.
  */
 export type AugmentedRequest = Request & {
 	[key: string]: RateLimitInfo
 }
 
-/**
- * The rate limit related information for each client included in the
- * Express request object.
- */
+
 export type RateLimitInfo = {
 	limit: number
 	used: number
 	remaining: number
 	resetTime: Date | undefined
-
-	/**
-	 * NOTE: The `current` field is deprecated and renamed to `used`. The library
-	 * will still set the `current` property, and you can still access it, but it
-	 * will be hidden from iteration and JSON.stringify calls. See:
-	 * https://github.com/express-rate-limit/express-rate-limit/discussions/372#discussioncomment-6915685
-	 */
-	// current: number
 }

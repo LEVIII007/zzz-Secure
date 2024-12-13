@@ -8,6 +8,7 @@ export class InMemoryStore implements StoreInterface {
     constructor(private suspicionThreshold = 5, private blockDurationMs = 60000) {}
 
     async set(key: string, score: number, ttl: number): Promise<void> {
+        console.log("set!!!")
         const expiry = Date.now() + ttl;
         const value = { score, expiry, isBlocked: false };
         this.store.set(key, value);
