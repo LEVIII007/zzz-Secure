@@ -2,7 +2,8 @@
 import { InMemoryStore } from './memory/inMemoryStore';
 import { Request, Response, NextFunction } from 'express';
 import { handleAsyncErrors } from '../parseConfig';
-import { ParsedQs } from 'qs';
+import { StoreInterface } from './memory/memoryInterface';
+import { detectLfiPatterns, detectSQLInjectionPatterns, detectXSSPatterns } from './detection-patterns';
 
 type SuspicionScore = {
     score: number;
@@ -13,95 +14,110 @@ interface ShieldOptions {
     suspicionThreshold?: number;
     blockDurationMs?: number;
     detectionPatterns?: Array<RegExp>;
+    message?: string;
+    csrf?: boolean;
+    xss?: boolean;
+    sqlInjection?: boolean;
+    lfi?: boolean;
+    rfi?: boolean;
+    shellInjection?: boolean;
+    store?: StoreInterface;
 }
 
-function detectSuspiciousPatterns(
-    req: Request, 
+export function isAttackDetected(
+    input: object,
     patterns: RegExp[]
 ): boolean {
-    // Recursive function to deep check objects
-    const deepCheck = (obj: any, pattern: RegExp): boolean => {
-        if (typeof obj === 'string') {
-            return pattern.test(obj);
-        }
-        if (typeof obj === 'object' && obj !== null) {
-            return Object.values(obj).some(value => deepCheck(value, pattern));
-        }
-        return false;
-    };
-
-    // Check each pattern against all relevant request fields
-    return patterns.some(pattern =>
-        deepCheck(req.body, pattern) || // Check request body recursively
-        Object.values(req.query).some(value => pattern.test(value as string)) || // Check query parameters
-        Object.values(req.headers).some(value => pattern.test(value as string)) || // Check headers
-        Object.values(req.cookies || {}).some(value => pattern.test(value as string)) || // Check cookies
-        Object.values(req.params || {}).some(value => pattern.test(value as string)) || // Check route parameters
-        pattern.test(req.url) // Check URL
+    const values = Object.values(input);
+    return values.some(value =>
+        typeof value === "string" && patterns.some(pattern => pattern.test(value))
     );
 }
 
+export function detectMaliciousRequest(
+    req: any,
+    options: ShieldOptions
+): { isSuspicious: boolean; attackTypes: string[] } {
+    const attackTypes: string[] = [];
 
-export class ArcjetShield {
-    private suspicionThreshold: number;
-    private blockDurationMs: number;
-    private detectionPatterns: Array<RegExp>;
-    private memoryStore: InMemoryStore;
-
-    constructor(memoryStore: InMemoryStore, options: ShieldOptions = {}) {
-        this.memoryStore = memoryStore; // Injected memory store
-        this.suspicionThreshold = options.suspicionThreshold ?? 5;
-        this.blockDurationMs = options.blockDurationMs ?? 60000;
-        this.detectionPatterns = options.detectionPatterns ?? [
-            /<script>/i,
-            /SELECT.*FROM/i,
-            /\.\.\//,
-            /(;|\||&&)/,
-        ];
+    // Check enabled attack detection options
+    if (options.xss && isAttackDetected({ ...req.query, ...req.body, ...req.params }, detectXSSPatterns)) {
+        attackTypes.push("XSS");
+    }
+    if (options.sqlInjection && isAttackDetected({ ...req.query, ...req.body, ...req.params }, detectSQLInjectionPatterns)) {
+        attackTypes.push("SQL Injection");
+    }
+    if (options.lfi && isAttackDetected({ ...req.query, ...req.body, ...req.params }, detectLfiPatterns)) {
+        attackTypes.push("LFI");
     }
 
-    // Middleware wrapped with handleAsyncErrors
+    return {
+        isSuspicious: attackTypes.length > 0,
+        attackTypes,
+    };
+}
+
+export default class ZShield {
+    private suspicionThreshold: number;
+    private blockDurationMs: number;
+    private memoryStore: StoreInterface;
+    private options: ShieldOptions;
+
+    constructor(options: Partial<ShieldOptions> = {}) {
+        this.options = {
+            message: "Access denied due to suspicious activity.",
+            suspicionThreshold: 5,
+            blockDurationMs: 60000,
+            csrf: true,
+            xss: true,
+            sqlInjection: true,
+            lfi: true,
+            rfi: true,
+            shellInjection: true,
+            store: new InMemoryStore(),
+            ...options,
+        };
+
+        this.memoryStore = this.options.store!;
+        this.suspicionThreshold = this.options.suspicionThreshold ?? 5;
+        this.blockDurationMs = this.options.blockDurationMs ?? 60000;
+    }
+
     middleware = handleAsyncErrors(
         async (req: Request, res: Response, next: NextFunction): Promise<void> => {
             const clientIP = req.ip;
 
-            // Check if client is blocked
-            const blockExpiry = await this.memoryStore.get<number>(`block:${clientIP}`);
-            if (blockExpiry && blockExpiry > Date.now()) {
-                res.status(403).json({ error: "Access denied due to suspicious activity." });
+            if (!clientIP) {
+                res.status(403).json({ error: this.options.message });
                 return;
             }
 
-            // Remove block if expired
-            if (blockExpiry && blockExpiry <= Date.now()) {
-                await this.memoryStore.delete(`block:${clientIP}`);
+            // Check if the client is already blocked
+            const isBlocked = await this.memoryStore.isBlocked(clientIP);
+            if (isBlocked) {
+                res.status(403).json({ error: this.options.message });
+                return;
             }
 
-            const isSuspicious = detectSuspiciousPatterns(req, this.detectionPatterns);
+            // Detect attack patterns
+            const { isSuspicious, attackTypes } = detectMaliciousRequest(req, this.options);
+            if (!isSuspicious) {
+                next();
+                return;
+            }
 
-            const currentScore = await this.memoryStore.get<SuspicionScore>(`score:${clientIP}`);
+            // Log detected attack types
+            console.log(`Suspicious activity detected from ${clientIP}: ${attackTypes.join(", ")}`);
 
-            if (isSuspicious) {
-                if (currentScore && Date.now() < currentScore.resetTime) {
-                    // Increment suspicion score
-                    currentScore.score += 1;
+            // Increment suspicion score
+            const currentScore = await this.memoryStore.increment(clientIP, this.blockDurationMs);
 
-                    if (currentScore.score >= this.suspicionThreshold) {
-                        await this.memoryStore.set(`block:${clientIP}`, Date.now() + this.blockDurationMs, this.blockDurationMs);
-                        await this.memoryStore.delete(`score:${clientIP}`);
-                        res.status(403).json({ error: "Access denied due to suspicious activity." });
-                        return;
-                    } else {
-                        await this.memoryStore.set(`score:${clientIP}`, currentScore, currentScore.resetTime - Date.now());
-                    }
-                } else {
-                    // Set initial suspicion score
-                    await this.memoryStore.set(
-                        `score:${clientIP}`,
-                        { score: 1, resetTime: Date.now() + this.blockDurationMs },
-                        this.blockDurationMs
-                    );
-                }
+            if (currentScore >= this.suspicionThreshold) {                
+                res.status(403).json({
+                    error: this.options.message,
+                    detectedAttacks: attackTypes,
+                });
+                return;
             }
 
             next();

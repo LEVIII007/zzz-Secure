@@ -1,7 +1,7 @@
 {
-  "name": "node-secure",
+  "name": "z-secure",
   "version": "1.0.0",
-  "description": "Package to handle security in Node backend",
+  "description": "A package to enhance security in Node.js backends with rate limiting, bot protection, and SQL injection prevention.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
@@ -10,9 +10,30 @@
     "test": "jest"
   },
   "author": "Shashank Tyagi",
-  "license": "ISC",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/LEVIII007/zzz-Secure.git"
+  },
+  "keywords": [
+    "security",
+    "rate-limiting",
+    "sql-injection",
+    "node.js",
+    "backend",
+    "express"
+  ],
+  "engines": {
+    "node": ">=20.0.0 <22.0.0"
+  },
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE"
+  ],
   "devDependencies": {
     "@types/express": "^5.0.0",
+    "@types/ioredis": "^4.28.10",
     "@types/jest": "^29.5.14",
     "@types/node": "^22.10.1",
     "@types/pg": "^8.11.10",
@@ -24,11 +45,12 @@
     "tslib": "^2.8.1",
     "typescript": "^5.7.2"
   },
-  "dependencies": {
-    "express": "^4.21.2",
-    "pg": "^8.13.1"
-  },
   "peerDependencies": {
-    "express": "^4.21.2"
+    "express": "^4.21.2",
+    "ioredis": "^4.28.5",
+    "pg": "^8.0.0"
+  },
+  "dependencies": {
+    "redis": "^4.7.0"
   }
 }

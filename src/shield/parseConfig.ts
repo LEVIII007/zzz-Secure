@@ -73,3 +73,5 @@ const parseShieldOptions = (
     };
     return config;
 };
+
+export {parseShieldOptions, omitUndefinedOptions};
