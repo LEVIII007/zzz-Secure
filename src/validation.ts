@@ -3,7 +3,7 @@
 
 import { isIP } from 'node:net'
 import type { Request } from 'express'
-import type { Store, EnabledValidations } from './types'
+import type { Store, EnabledValidations, BucketStore } from './types'
 
 /**
  * An error thrown/returned when a validation error occurs.
@@ -41,6 +41,7 @@ class ChangeWarning extends ValidationError {}
  * List of store instances that have been used with any express-rate-limit instance
  */
 const usedStores = new Set<Store>()
+const BucketusedStores = new Set<BucketStore>()
 
 /**
  * Maps the key used in a store for a certain request, and ensures that the
@@ -53,6 +54,7 @@ const usedStores = new Set<Store>()
  *    typically share state, such as the Redis store.
  */
 const singleCountKeys = new WeakMap<Request, Map<Store | string, string[]>>()
+const BucketsingleCountKeys = new WeakMap<Request, Map<BucketStore | string, string[]>>()
 
 /**
  * The validations that can be run, as well as the methods to run them.
@@ -164,6 +166,19 @@ const validations = {
 		usedStores.add(store)
 	},
 
+	BucketunsharedStore(store: BucketStore) {
+		if (BucketusedStores.has(store)) {
+			const maybeUniquePrefix = store?.localKeys
+				? ''
+				: ' (with a unique prefix)'
+			throw new ValidationError(
+				'ERR_ERL_STORE_REUSE',
+				`A Store instance must not be shared across multiple rate limiters. Create a new instance of ${store.constructor.name}${maybeUniquePrefix} for each limiter instead.`,
+			)
+		}
+
+		BucketusedStores.add(store)
+	},
 	/**
 	 * Ensures a given key is incremented only once per request.
 	 *
@@ -178,6 +193,31 @@ const validations = {
 		if (!storeKeys) {
 			storeKeys = new Map()
 			singleCountKeys.set(request, storeKeys)
+		}
+
+		const storeKey = store.localKeys ? store : store.constructor.name
+		let keys = storeKeys.get(storeKey)
+		if (!keys) {
+			keys = []
+			storeKeys.set(storeKey, keys)
+		}
+
+		const prefixedKey = `${store.prefix ?? ''}${key}`
+
+		if (keys.includes(prefixedKey)) {
+			throw new ValidationError(
+				'ERR_ERL_DOUBLE_COUNT',
+				`The hit count for ${key} was incremented more than once for a single request.`,
+			)
+		}
+
+		keys.push(prefixedKey)
+	},
+	BucketsingleCount(request: Request, store: BucketStore, key: string) {
+		let storeKeys = BucketsingleCountKeys.get(request)
+		if (!storeKeys) {
+			storeKeys = new Map()
+			BucketsingleCountKeys.set(request, storeKeys)
 		}
 
 		const storeKey = store.localKeys ? store : store.constructor.name

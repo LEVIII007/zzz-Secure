@@ -10,7 +10,7 @@ import {
 	setDraft7Headers,
 	setRetryAfterHeader,
 } from '../header';
-import { parseOptions, handleAsyncErrors, getOptionsFromConfig } from '../parseConfig';
+import { parseOptions, handleAsyncErrors, getOptionsFromConfig } from '../BucketparseConfig';
 
 /**
  * Token Bucket rate-limiting middleware for Express.
@@ -24,12 +24,12 @@ import { parseOptions, handleAsyncErrors, getOptionsFromConfig } from '../parseC
 const tokenBucket = (
 	passedOptions?: Partial<BucketOptions>,
 ): RateLimitRequestHandler => {
-	const config = parseOptions(passedOptions ?? {}, 0);
+	const config = parseOptions(passedOptions ?? {});
 	const options = getOptionsFromConfig(config);
-
+	//validaion store ke liye likh diyo mohit tu
 	// Ensure proper store validation
-	config.validations.creationStack(config.store);
-	config.validations.unsharedStore(config.store);
+	// config.validations.creationStack(config.store);
+	// config.validations.unsharedStore(config.store);
 
 	if (typeof config.store.init === 'function') config.store.init(options);
 
@@ -63,14 +63,14 @@ const tokenBucket = (
 				}
 				throw error;
 			}
-
-			config.validations.positiveHits(tokensRemaining);
-			config.validations.singleCount(request, config.store, key);
+			// ye validation bhi likhne hain mohit ko
+			// config.validations.positiveHits(tokensRemaining);
+			// config.validations.singleCount(request, config.store, key);
 
 			const retrieveLimit =
-				typeof config.limit === 'function'
-					? config.limit(request, response)
-					: config.limit;
+				typeof config.maxTokens === 'function'
+					? config.maxTokens(request, response)
+					: config.maxTokens;
 			const limit = await retrieveLimit;
 			config.validations.limit(limit);
 
@@ -87,13 +87,14 @@ const tokenBucket = (
 				value: tokensRemaining,
 			});
 			augmentedRequest[config.requestPropertyName] = info;
+			const refillInterval = 1000 / (config.refillRate ?? 1);
 
 			if (config.standardHeaders && !response.headersSent) {
 				if (config.standardHeaders === 'draft-6') {
-					setDraft6Headers(response, info, config.windowMs);
+					setDraft6Headers(response, info, refillInterval);
 				} else if (config.standardHeaders === 'draft-7') {
 					config.validations.headersResetTime(info.resetTime);
-					setDraft7Headers(response, info, config.windowMs);
+					setDraft7Headers(response, info, refillInterval);
 				}
 			}
 
@@ -131,7 +132,7 @@ const tokenBucket = (
 
 			if (tokensRemaining == 0) {
 				if (config.standardHeaders) {
-					setRetryAfterHeader(response, info, config.windowMs);
+					setRetryAfterHeader(response, info, refillInterval);
 				}
 				config.handler(request, response, next, options);
 				return;

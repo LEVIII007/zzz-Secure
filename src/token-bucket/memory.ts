@@ -1,14 +1,14 @@
 // /source/memory-store.ts
 // A memory store implementing the Token Bucket algorithm
 
-import type { Store, BucketOptions, ClientRateLimitInfo } from '../types';
+import type { BucketStore, BucketOptions, ClientRateLimitInfo } from '../types';
 
 type Client = {
     tokens: number;
     lastRefillTime: number;
 };
 
-export default class MemoryTokenBucketStore implements Store {
+export default class MemoryTokenBucketStore implements BucketStore {
     /**
      * The duration of time (in milliseconds) for refilling tokens.
      */
@@ -41,9 +41,10 @@ export default class MemoryTokenBucketStore implements Store {
      * @param options {Options} - The options used to set up the middleware.
      */
     init(options: BucketOptions): void {
-        this.refillInterval = options.windowMs ?? 15000;
-        this.bucketCapacity = typeof options.limit === 'number' ? options.limit : 10;
-        this.tokensPerInterval = this.bucketCapacity / (this.refillInterval / 1000);
+        // This works if refillRate is intended to represent the number of tokens to be refilled per second.
+        this.refillInterval = 1000 / (options.refillRate ?? 1);
+        this.bucketCapacity = typeof options.maxTokens === 'number' ? options.maxTokens : 10;
+        this.tokensPerInterval = options.refillRate ?? 1 / (this.refillInterval / 1000);
 
         console.debug(
             `Initialized MemoryTokenBucketStore with refillInterval: ${this.refillInterval}, bucketCapacity: ${this.bucketCapacity}, tokensPerInterval: ${this.tokensPerInterval}`

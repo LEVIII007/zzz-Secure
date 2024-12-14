@@ -1,15 +1,16 @@
 import type { Request, Response, NextFunction, RequestHandler } from 'express';
 import type {
-    Options,
+    BucketOptions,
     AugmentedRequest,
     RateLimitRequestHandler,
-    Store,
+    BucketStore,
     ClientRateLimitInfo,
     ValueDeterminingMiddleware,
-    RateLimitExceededEventHandler,
+    RateLimitExceededEventHandler1,
     DraftHeadersVersion,
     RateLimitInfo,
     EnabledValidations,
+
 } from './types';
 import {
     setDraft6Headers,
@@ -17,11 +18,13 @@ import {
     setRetryAfterHeader,
 } from './header';
 import { getValidations, type Validations } from './validation';
-import  MemoryFixedWindowStore  from './fixed-window/memory-fw';
+import  MemoryTokenBucketStore  from './token-bucket/memory';
+import MemoryLeakyBucketStore  from './leaky-bucket/memory/in-memory';
 
 type Configuration = {
-    windowMs: number;
-    limit: number | ValueDeterminingMiddleware<number>;
+    maxTokens: number | ValueDeterminingMiddleware<number>;
+	refillRate: number | undefined;   // for token bucket
+    LeakRate : number | undefined;    // for leaky bucket
     message: any | ValueDeterminingMiddleware<any>;
     statusCode: number;
     standardHeaders: false | DraftHeadersVersion;
@@ -29,13 +32,14 @@ type Configuration = {
     skipFailedRequests: boolean;
     skipSuccessfulRequests: boolean;
     keyGenerator: ValueDeterminingMiddleware<string>;
-    handler: RateLimitExceededEventHandler;
+    handler: RateLimitExceededEventHandler1;
     skip: ValueDeterminingMiddleware<boolean>;
     requestWasSuccessful: ValueDeterminingMiddleware<boolean>;
-    store: Store;
+    store: BucketStore;
     validations: Validations;
     passOnStoreError: boolean;
 };
+
 
 /**
  * Converts a `Configuration` object to a valid `Options` object, in case the
@@ -45,9 +49,8 @@ type Configuration = {
  *
  * @returns {Partial<Options>} - The options derived from the configuration.
  */
-const getOptionsFromConfig = (config: Configuration): Options => {
+const getOptionsFromConfig = (config: Configuration): BucketOptions => {
     const { validations, ...directlyPassableEntries } = config;
-
     return {
         ...directlyPassableEntries,
         validate: validations.enabled as EnabledValidations,
@@ -65,12 +68,12 @@ const getOptionsFromConfig = (config: Configuration): Options => {
  * @private
  */
 const omitUndefinedOptions = (
-    passedOptions: Partial<Options>,
-): Partial<Options> => {
-    const omittedOptions: Partial<Options> = {};
+    passedOptions: Partial<BucketOptions>,
+): Partial<BucketOptions> => {
+    const omittedOptions: Partial<BucketOptions> = {};
 
     for (const k of Object.keys(passedOptions)) {
-        const key = k as keyof Options;
+        const key = k as keyof BucketOptions;
 
         if (passedOptions[key] !== undefined) {
             // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
@@ -90,13 +93,13 @@ const omitUndefinedOptions = (
  * @returns {Configuration} - A complete configuration object.
  */
 const parseOptions = (
-    passedOptions: Partial<Options>,
+    passedOptions: Partial<BucketOptions>,
 ): Configuration => {
     console.log('parseOptions!!!')
-
+    console.log(passedOptions)
     // Passing undefined should be equivalent to not passing an option at all, so we'll
     // omit all fields where their value is undefined.
-    const notUndefinedOptions: Partial<Options> =
+    const notUndefinedOptions: Partial<BucketOptions> =
         omitUndefinedOptions(passedOptions);
 
     // Create the validator before even parsing the rest of the options.
@@ -118,8 +121,10 @@ const parseOptions = (
     let standardHeaders = notUndefinedOptions.standardHeaders ?? false;
     if (standardHeaders === true) standardHeaders = 'draft-6';
 
-    const defaultStore = new MemoryFixedWindowStore()
-
+    const defaultStore = new MemoryTokenBucketStore();
+        // algorithmType === 1
+        //     ? new MemoryLeakyBucketStore()
+        //     : new MemoryTokenBucketStore();
 
     console.log(defaultStore)
 
@@ -128,8 +133,9 @@ const parseOptions = (
     // See ./types.ts#Options for a detailed description of the options and their
     // defaults.
     const config: Configuration = {
-        windowMs: 60 * 1000,
-        limit: 5, // `max` is deprecated, but support it anyways.
+        maxTokens: 20,
+        refillRate: 2,   // for token bucket
+        LeakRate : 2,   // for leaky bucket
         message: 'Too many requests, please try again later.',
         statusCode: 429,
         requestPropertyName: 'rateLimit',
@@ -153,7 +159,7 @@ const parseOptions = (
             request: Request,
             response: Response,
             _next: NextFunction,
-            _optionsUsed: Options,
+            _optionsUsed: BucketOptions,
         ): Promise<void> {
             // Set the response status code.
             response.status(config.statusCode);
@@ -182,20 +188,6 @@ const parseOptions = (
         // Print an error to the console if a few known misconfigurations are detected.
         validations,
     };
-
-    // Ensure that the store passed implements the `Store` interface
-    if (
-        typeof config.store.increment !== 'function' ||
-        typeof config.store.decrement !== 'function' ||
-        typeof config.store.resetKey !== 'function' ||
-        (config.store.resetAll !== undefined &&
-            typeof config.store.resetAll !== 'function') ||
-        (config.store.init !== undefined && typeof config.store.init !== 'function')
-    ) {
-        throw new TypeError(
-            'An invalid store was passed. Please ensure that the store is a class that implements the `Store` interface.',
-        );
-    }
 
     return config;
 };

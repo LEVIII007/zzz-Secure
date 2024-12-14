@@ -47,6 +47,14 @@ export type RateLimitExceededEventHandler = (
 	optionsUsed: Options,
 ) => void
 
+export type RateLimitExceededEventHandler1 = (
+	request: Request,
+	response: Response,
+	next: NextFunction,
+	optionsUsed: BucketOptions,
+) => void
+
+
 /**
  * Event callback that is triggered on a client's first request that exceeds the limit
  * but not for subsequent requests. May be used for logging, etc. Should *not*
@@ -61,6 +69,13 @@ export type RateLimitReachedEventHandler = (
 	response: Response,
 	optionsUsed: Options,
 ) => void
+
+export type RateLimitReachedEventHandler1 = (
+	request: Request,
+	response: Response,
+	optionsUsed: BucketOptions,
+) => void
+
 
 /**
  * Data returned from the `Store` when a client's hit counter is incremented.
@@ -122,32 +137,93 @@ export type Store = {
 	localKeys?: boolean
 	prefix?: string
 }
-export type BucketStore = {
-	init?: (options: Options) => void;
-  
-	/**
-	 * Method to fetch a client's token count and the time at which the bucket will be reset.
-	 *
-	 * @param key {string} - The identifier for a client.
-	 *
-	 * @returns {ClientRateLimitInfo} - The current token count and reset time for that client.
-	 */
-	get?: (
-	  key: string,
-	) =>
-	  | Promise<ClientRateLimitInfo | undefined>
-	  | ClientRateLimitInfo
-	  | undefined;
-	
-	refill?: (key: string) => Promise<IncrementResponse> | IncrementResponse;
-  
 
-	resetKey: (key: string) => Promise<void> | void;
-	resetAll?: () => Promise<void> | void;
-	shutdown?: () => Promise<void> | void;
-	localKeys?: boolean;
+/**
+ * The interface for the Token Bucket store. This defines the operations
+ * required to interact with a token bucket-based rate limiter.
+ */
+export interface BucketStore {
+    /**
+     * Initializes the store with the given configuration.
+     * 
+     * @param options - Configuration options for the token bucket.
+     */
+    init(options: BucketOptions): void;
+
+    /**
+     * Retrieves the current rate limit information for a client.
+     * 
+     * @param key - The unique identifier for a client.
+     * @returns A promise with the rate limit information for the client.
+     */
+    get(key: string): Promise<ClientRateLimitInfo | undefined>;
+
+    /**
+     * Increments (consumes) one token from the client's token bucket.
+     * 
+     * @param key - The unique identifier for a client.
+     * @returns A promise with the updated rate limit information for the client.
+     */
+    increment(key: string): Promise<ClientRateLimitInfo>;
+
+    /**
+     * Decrements (adds back) one token to the client's token bucket.
+     * 
+     * @param key - The unique identifier for a client.
+     * @returns A promise that resolves when the operation is complete.
+     */
+    decrement(key: string): Promise<void>;
+
+    /**
+     * Resets the token bucket for a specific client.
+     * 
+     * @param key - The unique identifier for a client.
+     * @returns A promise that resolves when the operation is complete.
+     */
+    resetKey(key: string): Promise<void>;
+
+    /**
+     * Resets the token buckets for all clients.
+     * 
+     * @returns A promise that resolves when the operation is complete.
+     */
+    resetAll(): Promise<void>;
+
+    /**
+     * Shuts down the store and clears all data.
+     * 
+     * @returns Nothing, but ensures any necessary cleanup happens.
+     */
+    shutdown(): void;
+
+    /**
+     * The duration (in milliseconds) between each token refill.
+     * This is calculated based on the refill rate.
+     */
+    refillInterval: number;
+
+    /**
+     * The maximum number of tokens that the bucket can hold.
+     */
+    bucketCapacity: number;
+
+    /**
+     * The number of tokens to add per refill interval.
+     */
+    tokensPerInterval: number;
+
+    /**
+     * A map to store the token bucket information for each client.
+     */
+    clientMap: Map<string, { tokens: number; lastRefillTime: number }>;
+
+    /**
+     * A flag to determine if keys in one instance of the store are isolated from other instances.
+     */
+    localKeys?: boolean;
 	prefix?: string;
-  }
+}
+
   
 export type DraftHeadersVersion = 'draft-6' | 'draft-7'
 
@@ -185,9 +261,33 @@ export type Options = {
 	passOnStoreError: boolean
 }
 
+// export type BucketOptions = {
+// 	windowMs: number
+// 	limit: number | ValueDeterminingMiddleware<number>
+// 	message: any | ValueDeterminingMiddleware<any>
+// 	statusCode: number
+// 	standardHeaders: boolean | DraftHeadersVersion
+// 	requestPropertyName: string
+// 	skipFailedRequests: boolean
+// 	skipSuccessfulRequests: boolean
+// 	keyGenerator: ValueDeterminingMiddleware<string>
+// 	handler: RateLimitExceededEventHandler
+// 	skip: ValueDeterminingMiddleware<boolean>
+// 	requestWasSuccessful: ValueDeterminingMiddleware<boolean>
+// 	store: Store
+// 	validate: boolean | EnabledValidations
+// 	headers?: boolean
+// 	max?: number | ValueDeterminingMiddleware<number>
+// 	passOnStoreError: boolean
+// 	maxTokens?: number
+// 	refillRate?: number
+// }
+  
+
 export type BucketOptions = {
-	windowMs: number
-	limit: number | ValueDeterminingMiddleware<number>
+	maxTokens: number | ValueDeterminingMiddleware<number> // for TokenBucket
+	refillRate: number | undefined;   // for TokenBucket
+	LeakRate: number | undefined;      // for leaky
 	message: any | ValueDeterminingMiddleware<any>
 	statusCode: number
 	standardHeaders: boolean | DraftHeadersVersion
@@ -195,17 +295,15 @@ export type BucketOptions = {
 	skipFailedRequests: boolean
 	skipSuccessfulRequests: boolean
 	keyGenerator: ValueDeterminingMiddleware<string>
-	handler: RateLimitExceededEventHandler
+	handler: RateLimitExceededEventHandler1
 	skip: ValueDeterminingMiddleware<boolean>
 	requestWasSuccessful: ValueDeterminingMiddleware<boolean>
-	store: Store
+	store: BucketStore
 	validate: boolean | EnabledValidations
 	headers?: boolean
-	max?: number | ValueDeterminingMiddleware<number>
 	passOnStoreError: boolean
-	maxTokens?: number
-	refillRate?: number
 }
+  
 
 /**
  * The configuration options for the rate limiter.

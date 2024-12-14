@@ -29,10 +29,10 @@ const app = express();
 
 
 
-const fw = FixedWindow({
-    windowMs: 15000,
-    limit: 3
-});
+// const fw = FixedWindow({
+//     windowMs: 15000,
+//     limit: 3
+// });
 
 // // const redisClient = new Redis()
 // // const store = new RedisStore({ 
@@ -43,17 +43,17 @@ const fw = FixedWindow({
 // // })
 
 const tb = tokenBucket({
-    windowMs: 15000,
-    limit: 3,
+    maxTokens: 5,
+    refillRate: 1,
 });
 
 
 app.use('/tb', tb);
-app.use('/fw', fw);
+// app.use('/fw', fw);
 
 app.use(express.json());
 
-const shield = new ZShield();
+// const shield = new ZShield();
 
 // app.use(shield.middleware);
 
