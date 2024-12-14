@@ -1,51 +1,53 @@
 // /source/memory-store.ts
 // A memory store implementing the Token Bucket algorithm
 
-import type { BucketStore, BucketOptions, ClientRateLimitInfo } from '../types'
+import type { Store, BucketOptions, ClientRateLimitInfo } from '../types';
 
 type Client = {
-    tokens: number
-    lastRefillTime: number
-}
+    tokens: number;
+    lastRefillTime: number;
+};
 
-
-
-export default class MemoryTokenBucketStore implements BucketStore {
+export default class MemoryTokenBucketStore implements Store {
     /**
      * The duration of time (in milliseconds) for refilling tokens.
      */
-    refillInterval!: number
+    refillInterval!: number;
 
     /**
      * The maximum number of tokens a bucket can hold.
      */
-    bucketCapacity!: number
+    bucketCapacity!: number;
 
     /**
-     * The number of tokens to add per refill interval.
+     * The number of tokens to add per second.
      */
-    tokensPerInterval!: number
+    tokensPerInterval!: number;
 
     /**
      * Map to store the tokens and last refill time for each client.
      */
-    clientMap = new Map<string, Client>()
+    clientMap = new Map<string, Client>();
 
     /**
      * Confirmation that the keys incremented in one instance of MemoryStore
      * cannot affect other instances.
      */
-    localKeys = true
+    localKeys = true;
 
     /**
      * Initialize the store with the given options.
      *
      * @param options {Options} - The options used to set up the middleware.
      */
-    init(options:  BucketOptions): void {
-        this.refillInterval = options.windowMs ?? 15000
-        this.bucketCapacity = options.maxTokens ?? 10 
-        this.tokensPerInterval = this.bucketCapacity / (this.refillInterval)
+    init(options: BucketOptions): void {
+        this.refillInterval = options.windowMs ?? 15000;
+        this.bucketCapacity = typeof options.limit === 'number' ? options.limit : 10;
+        this.tokensPerInterval = this.bucketCapacity / (this.refillInterval / 1000);
+
+        console.debug(
+            `Initialized MemoryTokenBucketStore with refillInterval: ${this.refillInterval}, bucketCapacity: ${this.bucketCapacity}, tokensPerInterval: ${this.tokensPerInterval}`
+        );
     }
 
     /**
@@ -58,14 +60,14 @@ export default class MemoryTokenBucketStore implements BucketStore {
      * @public
      */
     async get(key: string): Promise<ClientRateLimitInfo | undefined> {
-        const client = this.getClient(key)
-        const now = Date.now()
-        this.refillTokens(client, now)
+        const client = this.getClient(key);
+        const now = Date.now();
+        this.refillTokens(client, now);
 
         return {
             totalHits: client.tokens,
             resetTime: new Date(client.lastRefillTime + this.refillInterval),
-        }
+        };
     }
 
     /**
@@ -78,24 +80,25 @@ export default class MemoryTokenBucketStore implements BucketStore {
      * @public
      */
     async increment(key: string): Promise<ClientRateLimitInfo> {
-        console.debug(`Incrementing token bucket for key: ${key}`)
-        const client = this.getClient(key)
-        const now = Date.now()
-        console.debug(`Current time: ${now}, Last refill time: ${client.lastRefillTime}`)
-        this.refillTokens(client, now)
-        console.debug(`Tokens after refill: ${client.tokens}`)
+        console.debug(`Incrementing token bucket for key: ${key}`);
+        const client = this.getClient(key);
+        const now = Date.now();
+        console.debug(`Current time: ${now}, Last refill time: ${client.lastRefillTime}`);
+        this.refillTokens(client, now);
+        console.debug(`Tokens after refill: ${client.tokens}`);
 
         if (client.tokens > 0) {
-            client.tokens--
-            console.debug(`Token consumed. Remaining tokens: ${client.tokens}`)
+            client.tokens--;
+            console.debug(`Token consumed. Remaining tokens: ${client.tokens}`);
         } else {
-            console.debug(`No tokens available to consume for key: ${key}`)
+            console.debug(`No tokens available to consume for key: ${key}`);
+            
         }
 
         return {
             totalHits: client.tokens,
             resetTime: new Date(client.lastRefillTime + this.refillInterval),
-        }
+        };
     }
 
     /**
@@ -106,10 +109,10 @@ export default class MemoryTokenBucketStore implements BucketStore {
      * @public
      */
     async decrement(key: string): Promise<void> {
-        const client = this.getClient(key)
+        const client = this.getClient(key);
 
         if (client.tokens < this.bucketCapacity) {
-            client.tokens++
+            client.tokens++;
         }
     }
 
@@ -121,7 +124,7 @@ export default class MemoryTokenBucketStore implements BucketStore {
      * @public
      */
     async resetKey(key: string): Promise<void> {
-        this.clientMap.delete(key)
+        this.clientMap.delete(key);
     }
 
     /**
@@ -130,7 +133,7 @@ export default class MemoryTokenBucketStore implements BucketStore {
      * @public
      */
     async resetAll(): Promise<void> {
-        this.clientMap.clear()
+        this.clientMap.clear();
     }
 
     /**
@@ -139,7 +142,7 @@ export default class MemoryTokenBucketStore implements BucketStore {
      * @public
      */
     shutdown(): void {
-        void this.resetAll()
+        void this.resetAll();
     }
 
     /**
@@ -154,9 +157,10 @@ export default class MemoryTokenBucketStore implements BucketStore {
             this.clientMap.set(key, {
                 tokens: this.bucketCapacity,
                 lastRefillTime: Date.now(),
-            })
+            });
+            console.debug(`New client bucket created for key: ${key}`);
         }
-        return this.clientMap.get(key)!
+        return this.clientMap.get(key)!;
     }
 
     /**
@@ -166,12 +170,15 @@ export default class MemoryTokenBucketStore implements BucketStore {
      * @param now {number} - The current timestamp.
      */
     private refillTokens(client: Client, now: number): void {
-        const elapsedTime = now - client.lastRefillTime
-        const tokensToAdd = Math.floor((elapsedTime / 1000) * this.tokensPerInterval)
+        const elapsedTime = now - client.lastRefillTime;
+        const tokensToAdd = Math.floor((elapsedTime / 1000) * this.tokensPerInterval);
 
         if (tokensToAdd > 0) {
-            client.tokens = Math.min(client.tokens + tokensToAdd, this.bucketCapacity)
-            client.lastRefillTime = now
+            client.tokens = Math.min(client.tokens + tokensToAdd, this.bucketCapacity);
+            client.lastRefillTime = now;
+            console.debug(
+                `Refilled ${tokensToAdd} tokens for client. New token count: ${client.tokens}`
+            );
         }
     }
 }
