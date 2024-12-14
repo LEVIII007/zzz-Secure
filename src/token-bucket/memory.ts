@@ -9,6 +9,7 @@ type Client = {
 };
 
 export default class MemoryTokenBucketStore implements BucketStore {
+    private limit!: number;
     /**
      * The duration of time (in milliseconds) for refilling tokens.
      */
@@ -45,6 +46,7 @@ export default class MemoryTokenBucketStore implements BucketStore {
         this.refillInterval = 1000 / (options.refillRate ?? 1);
         this.bucketCapacity = typeof options.maxTokens === 'number' ? options.maxTokens : 10;
         this.tokensPerInterval = options.refillRate ?? 1 / (this.refillInterval / 1000);
+        this.limit = options.Limit as number ?? 100;
 
         console.debug(
             `Initialized MemoryTokenBucketStore with refillInterval: ${this.refillInterval}, bucketCapacity: ${this.bucketCapacity}, tokensPerInterval: ${this.tokensPerInterval}`

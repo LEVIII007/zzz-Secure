@@ -36,7 +36,7 @@ const fixedWindow = (
 ): RateLimitRequestHandler => {
 	console.log('fixedWindow!!!')
 	// Parse the options and add the default values for unspecified options
-	const config = parseOptions(passedOptions ?? {}, 1)
+	const config = parseOptions(passedOptions ?? {})
 	const options = getOptionsFromConfig(config)
 
 	console.log(options)

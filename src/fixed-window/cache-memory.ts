@@ -1,4 +1,4 @@
-import scripts from '../token-bucket/scripts'
+import scripts from '../fixed-window/scripts'
 import { Store } from '../types'
 import Redis, { Redis as RedisClient } from 'ioredis';
 
@@ -9,7 +9,7 @@ interface RedisStoreOptions {
   resetExpiryOnChange?: boolean
 }
 
-export class RedisStore implements Store {
+export default class FixedWindowRedisStore implements Store {
   public client: RedisClient
   public prefix: string
   public windowMs: number

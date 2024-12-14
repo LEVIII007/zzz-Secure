@@ -22,6 +22,7 @@ import  MemoryTokenBucketStore  from './token-bucket/memory';
 import MemoryLeakyBucketStore  from './leaky-bucket/memory/in-memory';
 
 type Configuration = {
+    Limit: number | ValueDeterminingMiddleware<number>;
     maxTokens: number | ValueDeterminingMiddleware<number>;
 	refillRate: number | undefined;   // for token bucket
     LeakRate : number | undefined;    // for leaky bucket
@@ -133,9 +134,10 @@ const parseOptions = (
     // See ./types.ts#Options for a detailed description of the options and their
     // defaults.
     const config: Configuration = {
-        maxTokens: 20,
-        refillRate: 2,   // for token bucket
-        LeakRate : 2,   // for leaky bucket
+        Limit: notUndefinedOptions.Limit ?? 100,
+        maxTokens: notUndefinedOptions.maxTokens ?? 5,
+        refillRate: notUndefinedOptions.refillRate ?? 1,   // for token bucket
+        LeakRate : notUndefinedOptions.LeakRate ?? 2,   // for leaky bucket
         message: 'Too many requests, please try again later.',
         statusCode: 429,
         requestPropertyName: 'rateLimit',
@@ -184,7 +186,7 @@ const parseOptions = (
         standardHeaders,
         // Note that this field is declared after the user's options are spread in,
         // so that this field doesn't get overriden with an un-promisified store!
-        store,
+        store : notUndefinedOptions.store ?? defaultStore,
         // Print an error to the console if a few known misconfigurations are detected.
         validations,
     };

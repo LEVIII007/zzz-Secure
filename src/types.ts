@@ -215,7 +215,7 @@ export interface BucketStore {
     /**
      * A map to store the token bucket information for each client.
      */
-    clientMap: Map<string, { tokens: number; lastRefillTime: number }>;
+    clientMap?: Map<string, { tokens: number; lastRefillTime: number }>;
 
     /**
      * A flag to determine if keys in one instance of the store are isolated from other instances.
@@ -260,31 +260,10 @@ export type Options = {
 	max?: number | ValueDeterminingMiddleware<number>
 	passOnStoreError: boolean
 }
-
-// export type BucketOptions = {
-// 	windowMs: number
-// 	limit: number | ValueDeterminingMiddleware<number>
-// 	message: any | ValueDeterminingMiddleware<any>
-// 	statusCode: number
-// 	standardHeaders: boolean | DraftHeadersVersion
-// 	requestPropertyName: string
-// 	skipFailedRequests: boolean
-// 	skipSuccessfulRequests: boolean
-// 	keyGenerator: ValueDeterminingMiddleware<string>
-// 	handler: RateLimitExceededEventHandler
-// 	skip: ValueDeterminingMiddleware<boolean>
-// 	requestWasSuccessful: ValueDeterminingMiddleware<boolean>
-// 	store: Store
-// 	validate: boolean | EnabledValidations
-// 	headers?: boolean
-// 	max?: number | ValueDeterminingMiddleware<number>
-// 	passOnStoreError: boolean
-// 	maxTokens?: number
-// 	refillRate?: number
-// }
   
 
 export type BucketOptions = {
+	Limit : number | ValueDeterminingMiddleware<number>
 	maxTokens: number | ValueDeterminingMiddleware<number> // for TokenBucket
 	refillRate: number | undefined;   // for TokenBucket
 	LeakRate: number | undefined;      // for leaky

@@ -1,102 +1,111 @@
-import scripts from './scripts'
-import { Store } from '../types'
-import Redis, { Redis as RedisClient } from 'ioredis';
+// src/redis-store/redis-store.ts
+import { Redis as RedisClient } from 'ioredis';
+import { LUA_SCRIPTS } from './scripts';
+import type { BucketStore, BucketOptions, ClientRateLimitInfo } from '../types';
 
-interface RedisStoreOptions {
-  client: RedisClient
-  prefix?: string
-  windowMs?: number
-  resetExpiryOnChange?: boolean
-}
+export default class RedisTokenBucketStore implements BucketStore {
+    private redis: RedisClient;
+    public refillInterval!: number;
+    public bucketCapacity!: number;
+    public tokensPerInterval!: number;
+    public prefix!: string;
 
-export class RedisStore implements Store {
-  public client: RedisClient
-  public prefix: string
-  public windowMs: number
-  public resetExpiryOnChange: boolean
+    // Precompiled Lua script SHA
+    private consumeTokenSha!: string;
+    private returnTokenSha!: string;
+    private resetClientSha!: string;
 
-  localKeys = false
-
-  constructor(options: RedisStoreOptions) {
-    this.client = options.client
-    this.prefix = options.prefix ?? 'rl:'
-    this.windowMs = options.windowMs ?? 60000 // default 1 minute
-    this.resetExpiryOnChange = options.resetExpiryOnChange ?? false
-  }
-
-  init(options: { windowMs: number }) {
-    this.windowMs = options.windowMs
-  }
-
-  private prefixKey(key: string): string {
-    return `${this.prefix}${key}`
-  }
-
-  async get(key: string) {
-    const results = await this.client.eval(
-      scripts.get,
-      1,
-      this.prefixKey(key)
-    )
-
-    if (!Array.isArray(results)) 
-      throw new TypeError('Expected result to be array of values')
-
-    if (results.length !== 2)
-      throw new Error(`Expected 2 replies, got ${results.length}`)
-
-    const totalHits = results[0] === false ? 0 : Number(results[0])
-    const timeToExpire = Number(results[1])
-
-    return {
-      totalHits,
-      resetTime: new Date(Date.now() + timeToExpire)
+    constructor(redisClient: RedisClient) {
+        this.redis = redisClient;
     }
-  }
 
-  async increment(key: string) {
-    console.log("redis used!!!")
-    const results = await this.client.eval(
-      scripts.increment,
-      1,
-      this.prefixKey(key),
-      this.resetExpiryOnChange ? '1' : '0',
-      this.windowMs.toString()
-    )
+    async init(options: BucketOptions): Promise<void> {
+        // Calculate refill parameters
+        this.refillInterval = 1000 / (options.refillRate ?? 1);
+        this.bucketCapacity = typeof options.maxTokens === 'number' ? options.maxTokens : 10;
+        this.tokensPerInterval = options.refillRate ?? 1 / (this.refillInterval / 1000);
+        this.prefix = 'rl:'
 
-    if (!Array.isArray(results)) 
-      throw new TypeError('Expected result to be array of values')
+        // Load Lua scripts
+        this.consumeTokenSha = await this.redis.script('LOAD', LUA_SCRIPTS.CONSUME_TOKEN);
+        this.returnTokenSha = await this.redis.script('LOAD', LUA_SCRIPTS.RETURN_TOKEN);
+        this.resetClientSha = await this.redis.script('LOAD', LUA_SCRIPTS.RESET_CLIENT);
 
-    if (results.length !== 2)
-      throw new Error(`Expected 2 replies, got ${results.length}`)
-
-    const totalHits = results[0] === false ? 0 : Number(results[0])
-    const timeToExpire = Number(results[1])
-
-    return {
-      totalHits,
-      resetTime: new Date(Date.now() + timeToExpire)
+        console.debug(
+            `Initialized RedisTokenBucketStore with refillInterval: ${this.refillInterval}, ` +
+            `bucketCapacity: ${this.bucketCapacity}, tokensPerInterval: ${this.tokensPerInterval}`
+        );
     }
-  }
 
-  async decrement(key: string) {
-    await this.client.decr(this.prefixKey(key))
-  }
+    async increment(key: string): Promise<ClientRateLimitInfo> {
+        const now = Date.now();
 
-  async resetKey(key: string) {
-    await this.client.del(this.prefixKey(key))
-  }
+        const [canConsume, remainingTokens, resetTime] = await this.redis.evalsha(
+            this.consumeTokenSha,
+            1,  // Number of keys
+            key,
+            now,
+            this.refillInterval,
+            this.bucketCapacity,
+            this.tokensPerInterval
+        ) as [number, number, number];
+        console.log("canConsume", canConsume)
+        console.log("remainingTokens", remainingTokens)
+        console.log("resetTime", resetTime)
 
-  async resetAll() {
-    // Find all keys with the prefix and delete them
-    const keys = await this.client.keys(`${this.prefix}*`)
-    if (keys.length > 0) {
-      await this.client.del(...keys)
+        return {
+            totalHits: remainingTokens,
+            resetTime: new Date(resetTime),
+        };
     }
-  }
 
-  async shutdown() {
-    // If you need any cleanup, do it here
-    // For ioredis, typically no special shutdown is needed
-  }
+    async get(key: string): Promise<ClientRateLimitInfo | undefined> {
+        const bucketData = await this.redis.hgetall(key);
+        
+        if (Object.keys(bucketData).length === 0) {
+            return undefined;
+        }
+
+        const now = Date.now();
+        const lastRefillTime = parseInt(bucketData.lastRefillTime || now.toString());
+        const currentTokens = parseInt(bucketData.tokens || '0');
+        console.log("currentTokens", currentTokens)
+        console.log("lastRefillTime", lastRefillTime)
+
+        return {
+            totalHits: currentTokens,
+            resetTime: new Date(lastRefillTime + this.refillInterval)
+        };
+    }
+
+    async decrement(key: string): Promise<void> {
+        await this.redis.evalsha(
+            this.returnTokenSha,
+            1,  // Number of keys
+            key,
+            this.bucketCapacity
+        );
+    }
+
+    async resetKey(key: string): Promise<void> {
+        await this.redis.evalsha(
+            this.resetClientSha,
+            1,  // Number of keys
+            key,
+            this.bucketCapacity,
+            Date.now()
+        );
+    }
+
+    async resetAll(): Promise<void> {
+        const keys = await this.redis.keys('*');
+        if (keys.length > 0) {
+            await this.redis.del(...keys);
+        }
+    }
+
+    shutdown(): void {
+        // Optional: Close Redis connection if needed
+        this.redis.quit();
+    }
 }

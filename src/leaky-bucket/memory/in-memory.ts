@@ -1,165 +1,148 @@
-import type { BucketStore, BucketOptions, ClientRateLimitInfo } from '../types';
+import type { BucketStore, BucketOptions, ClientRateLimitInfo } from '../../types';
 
-type Client = {
-    tokens: number;
-    lastUpdateTime: number; // Tracks the last time tokens were leaked.
+type QueuedRequest = {
+    clientId: string;
+    timestamp: number;
 };
 
 export default class MemoryLeakyBucketStore implements BucketStore {
     /**
-     * The maximum number of tokens (bucket capacity).
+     * Global queue to store all incoming requests
      */
-    bucketCapacity!: number;
+    private globalQueue: QueuedRequest[] = [];
 
     /**
-     * The rate at which tokens are leaked (tokens per second).
+     * Tracks number of requests per client in the global queue
      */
-    leakRate!: number;
+    private clientRequestCounts: Map<string, number> = new Map();
 
     /**
-     * Map to store the tokens and last update time for each client.
+     * Server-wide configuration parameters
      */
-    clientMap = new Map<string, Client>();
+    private globalLimit!: number;      // Total requests server can handle in an interval
+    private clientMaxRequests!: number; // Max requests per client in the queue
+    private leakRate!: number;          // Number of requests processed per interval
 
     /**
-     * Confirmation that the keys incremented in one instance of MemoryStore
-     * cannot affect other instances.
-     */
-    localKeys = true;
-
-    /**
-     * Initialize the store with the given options.
-     *
-     * @param options {BucketOptions} - The options used to set up the middleware.
+     * Initialize the store with given options
      */
     init(options: BucketOptions): void {
-        this.bucketCapacity = options.maxTokens ?? 0;
-        this.leakRate = (options.maxTokens ?? 0) / (options.windowMs / 1000); // Tokens leaked per second.
+        this.globalLimit = options.Limit ?? 100;           // Default global limit
+        this.clientMaxRequests = options.maxTokens ?? 10;  // Default client max requests
+        this.leakRate = options.LeakRate ?? 5;             // Default leak rate
+
+        console.debug(`Initialized GlobalLeakyBucketStore: 
+            Global Limit: ${this.globalLimit}, 
+            Client Max Requests: ${this.clientMaxRequests}, 
+            Leak Rate: ${this.leakRate}`);
     }
 
     /**
-     * Fetch a client's current token count and reset time.
-     *
-     * @param key {string} - The identifier for a client.
-     *
-     * @returns {ClientRateLimitInfo | undefined} - The remaining tokens and reset time for that client.
-     *
-     * @public
+     * Add a request to the global queue
+     * @returns boolean indicating if request was accepted
      */
-    async get(key: string): Promise<ClientRateLimitInfo | undefined> {
-        const client = this.getClient(key);
-        this.leakTokens(client);
+    async increment(clientId: string): Promise<ClientRateLimitInfo> {
+        const now = Date.now();
+
+        // Check global queue limit
+        if (this.globalQueue.length >= this.globalLimit) {
+            throw new Error('Server request limit exceeded');
+        }
+
+        // Check client-specific request limit
+        const clientRequestCount = this.clientRequestCounts.get(clientId) ?? 0;
+        if (clientRequestCount >= this.clientMaxRequests) {
+            throw new Error('Client request limit exceeded');
+        }
+
+        // Add request to global queue
+        const request: QueuedRequest = { clientId, timestamp: now };
+        this.globalQueue.push(request);
+
+        // Update client request count
+        this.clientRequestCounts.set(clientId, clientRequestCount + 1);
 
         return {
-            totalHits: client.tokens,
-            resetTime: new Date(Date.now() + (client.tokens / this.leakRate) * 1000),
+            totalHits: this.globalQueue.length,
+            resetTime: new Date(now + 1000)  // Example reset time
         };
     }
 
     /**
-     * Increment the token bucket for a client by consuming one token.
-     *
-     * @param key {string} - The identifier for a client.
-     *
-     * @returns {ClientRateLimitInfo} - The remaining tokens and reset time for that client.
-     *
-     * @public
+     * Process requests based on leak rate
+     * Removes requests from global queue and updates client counts
      */
-    async increment(key: string): Promise<ClientRateLimitInfo> {
-        const client = this.getClient(key);
-        this.leakTokens(client);
+    async processRequests(): Promise<void> {
+        let processedCount = 0;
 
-        // Check if the bucket has space for another token.
-        if (client.tokens >= this.bucketCapacity) {
-            // Bucket overflow (reject request).
-            return {
-                totalHits: client.tokens,
-                resetTime: new Date(Date.now() + (client.tokens / this.leakRate) * 1000),
-            };
+        while (processedCount < this.leakRate && this.globalQueue.length > 0) {
+            const request = this.globalQueue.shift();
+            if (!request) break;
+
+            // Decrement client request count
+            const clientCurrentCount = this.clientRequestCounts.get(request.clientId) ?? 0;
+            if (clientCurrentCount > 1) {
+                this.clientRequestCounts.set(request.clientId, clientCurrentCount - 1);
+            } else {
+                this.clientRequestCounts.delete(request.clientId);
+            }
+
+            // Actual request processing would happen here
+            this.processRequest(request);
+
+            processedCount++;
         }
+    }
 
-        // Add the request to the bucket.
-        client.tokens++;
+    /**
+     * Placeholder for actual request processing logic
+     */
+    private processRequest(request: QueuedRequest): void {
+        console.debug(`Processing request for client: ${request.clientId}`);
+        // Implement actual request processing logic here
+    }
 
+    /**
+     * Get current status for a client
+     */
+    async get(clientId: string): Promise<ClientRateLimitInfo> {
         return {
-            totalHits: client.tokens,
-            resetTime: new Date(Date.now() + (client.tokens / this.leakRate) * 1000),
+            totalHits: this.globalQueue.length,
+            resetTime: new Date(Date.now() + 1000)
         };
     }
 
     /**
-     * Decrement the token bucket for a client by removing one token.
-     *
-     * @param key {string} - The identifier for a client.
-     *
-     * @public
+     * Reset a specific client's requests
      */
-    async decrement(key: string): Promise<void> {
-        const client = this.getClient(key);
-        if (client.tokens > 0) {
-            client.tokens--;
-        }
+    async resetKey(clientId: string): Promise<void> {
+        // Remove client's requests from global queue
+        this.globalQueue = this.globalQueue.filter(req => req.clientId !== clientId);
+        this.clientRequestCounts.delete(clientId);
     }
 
     /**
-     * Reset a client's token bucket.
-     *
-     * @param key {string} - The identifier for a client.
-     *
-     * @public
-     */
-    async resetKey(key: string): Promise<void> {
-        this.clientMap.delete(key);
-    }
-
-    /**
-     * Reset all clients' token buckets.
-     *
-     * @public
+     * Reset all requests
      */
     async resetAll(): Promise<void> {
-        this.clientMap.clear();
+        this.globalQueue = [];
+        this.clientRequestCounts.clear();
     }
 
     /**
-     * Shutdown the store by clearing all data.
-     *
-     * @public
+     * Shutdown the store
      */
     shutdown(): void {
-        void this.resetAll();
+        this.resetAll();
     }
 
     /**
-     * Get or create a client bucket for the given key.
-     *
-     * @param key {string} - The identifier for a client.
-     *
-     * @returns {Client} - The client bucket.
+     * Decrement method for compatibility (optional)
      */
-    private getClient(key: string): Client {
-        if (!this.clientMap.has(key)) {
-            this.clientMap.set(key, {
-                tokens: 0, // Start with an empty bucket.
-                lastUpdateTime: Date.now(),
-            });
-        }
-        return this.clientMap.get(key)!;
-    }
-
-    /**
-     * Leak tokens from a client's bucket based on the elapsed time since the last update.
-     *
-     * @param client {Client} - The client bucket to update.
-     */
-    private leakTokens(client: Client): void {
-        const now = Date.now();
-        const elapsedTime = (now - client.lastUpdateTime) / 1000; // Time in seconds.
-        const tokensToLeak = elapsedTime * this.leakRate;
-
-        if (tokensToLeak > 0) {
-            client.tokens = Math.max(client.tokens - tokensToLeak, 0);
-            client.lastUpdateTime = now;
+    async decrement(clientId: string): Promise<void> {
+        const clientCurrentCount = this.clientRequestCounts.get(clientId) ?? 0;
+        if (clientCurrentCount > 0) {
+            this.clientRequestCounts.set(clientId, clientCurrentCount - 1);
         }
     }
 }

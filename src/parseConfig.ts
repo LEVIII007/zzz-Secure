@@ -128,8 +128,8 @@ const parseOptions = (
     // See ./types.ts#Options for a detailed description of the options and their
     // defaults.
     const config: Configuration = {
-        windowMs: 60 * 1000,
-        limit: 5, // `max` is deprecated, but support it anyways.
+        windowMs: notUndefinedOptions.windowMs ?? 60 * 1000,
+        limit: notUndefinedOptions.limit ?? 5, // `max` is deprecated, but support it anyways.
         message: 'Too many requests, please try again later.',
         statusCode: 429,
         requestPropertyName: 'rateLimit',
@@ -178,7 +178,7 @@ const parseOptions = (
         standardHeaders,
         // Note that this field is declared after the user's options are spread in,
         // so that this field doesn't get overriden with an un-promisified store!
-        store,
+        store : notUndefinedOptions.store ?? defaultStore,
         // Print an error to the console if a few known misconfigurations are detected.
         validations,
     };

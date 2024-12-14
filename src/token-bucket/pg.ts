@@ -1,173 +1,164 @@
-import { Pool } from 'pg'; // PostgreSQL client library
-import type { BucketOptions, ClientRateLimitInfo, BucketStore } from '../types';
+import { Pool } from 'pg';
+import type { BucketStore, BucketOptions, ClientRateLimitInfo } from '../types';
 
 export default class PostgresTokenBucketStore implements BucketStore {
-  private pool: Pool;
-  private windowMs!: number;  // Time window in milliseconds
-  private maxTokens!: number;  // Max number of tokens in the bucket
-  private refillRate!: number;  // Number of tokens to refill per window
+    private pool: Pool;
+    public refillInterval!: number;
+    public bucketCapacity!: number;
+    public tokensPerInterval!: number;
 
-  constructor(pool: Pool) {
-    this.pool = pool;
-  }
-
-  // Initialize the token bucket store by creating the table if it doesn't exist
-  async init(options: BucketOptions): Promise<void> {
-    this.windowMs = options.windowMs;
-    this.maxTokens = options.maxTokens ?? 0;
-    this.refillRate = options.refillRate ?? 0;
-
-    // Ensure the database has the required table
-    await this.pool.query(`
-      CREATE TABLE IF NOT EXISTS token_bucket (
-        key TEXT PRIMARY KEY,
-        tokens INT NOT NULL,
-        last_refill TIMESTAMP NOT NULL
-      )
-    `);
-  }
-
-  // Get the token bucket information for a specific key
-  async get(key: string): Promise<ClientRateLimitInfo | undefined> {
-    const result = await this.pool.query(
-      'SELECT tokens, last_refill FROM token_bucket WHERE key = $1',
-      [key]
-    );
-
-    if (result.rows.length > 0) {
-      const { tokens, last_refill } = result.rows[0];
-      const now = new Date();
-
-      // Refill the tokens if the window has passed
-      const timeSinceLastRefill = now.getTime() - new Date(last_refill).getTime();
-      const refillTokens = Math.floor(timeSinceLastRefill / this.windowMs) * this.refillRate;
-      const newTokens = Math.min(tokens + refillTokens, this.maxTokens);  // Max token capacity
-
-      // If the bucket was refilled, update the tokens and last refill time
-      if (newTokens !== tokens) {
-        await this.pool.query(
-          'UPDATE token_bucket SET tokens = $1, last_refill = $2 WHERE key = $3',
-          [newTokens, now, key]
-        );
-      }
-
-      // Return the current state of the bucket
-      return { totalHits: newTokens, resetTime: new Date(now.getTime() + this.windowMs) };
+    constructor(pool: Pool) {
+        this.pool = pool;
     }
-    return undefined;
-  }
 
-  // Increment the tokens based on refill rate and time passed
-  async increment(key: string): Promise<ClientRateLimitInfo> {
-    const now = new Date();
+    async init(options: BucketOptions): Promise<void> {
+        this.refillInterval = 1000 / (options.refillRate ?? 1);
+        this.bucketCapacity = typeof options.maxTokens === 'number' ? options.maxTokens : 10;
+        this.tokensPerInterval = options.refillRate ?? 1 / (this.refillInterval / 1000);
 
-    await this.pool.query('BEGIN'); // Start a transaction
-
+        console.debug(
+            `Initialized PostgresTokenBucketStore with refillInterval: ${this.refillInterval}, ` +
+            `bucketCapacity: ${this.bucketCapacity}, tokensPerInterval: ${this.tokensPerInterval}`
+        );
+        // Check and create the table if it doesn't exist
     try {
-      const result = await this.pool.query(
-        'SELECT tokens, last_refill FROM token_bucket WHERE key = $1 FOR UPDATE',
-        [key]
-      );
+      await this.pool.query(`
+          CREATE TABLE IF NOT EXISTS token_buckets (
+              key TEXT PRIMARY KEY,
+              tokens INT NOT NULL,
+              last_refill_time BIGINT NOT NULL
+          )
+      `);
 
-      if (result.rows.length > 0) {
-        const { tokens, last_refill } = result.rows[0];
+      console.debug('Token bucket table verified or created successfully.');
+  } catch (error) {
+      console.error('Error initializing the PostgresTokenBucketStore:', error);
+      throw error;
+  }
+    }
 
-        // Calculate how many tokens should be refilled
-        const timeSinceLastRefill = now.getTime() - new Date(last_refill).getTime();
-        const refillTokens = Math.floor(timeSinceLastRefill / this.windowMs) * this.refillRate;
-        const newTokens = Math.min(tokens + refillTokens, this.maxTokens);
+    async increment(key: string): Promise<ClientRateLimitInfo> {
+        const now = Date.now();
 
-        // If the bucket was refilled, update the tokens and last refill time
-        if (newTokens !== tokens) {
-          await this.pool.query(
-            'UPDATE token_bucket SET tokens = $1, last_refill = $2 WHERE key = $3',
-            [newTokens, now, key]
-          );
+        // Start a transaction
+        const client = await this.pool.connect();
+        try {
+            await client.query('BEGIN');
+
+            // Fetch current bucket state
+            const result = await client.query(
+                `SELECT tokens, last_refill_time FROM token_buckets WHERE key = $1 FOR UPDATE`,
+                [key]
+            );
+
+            let currentTokens = 0;
+            let lastRefillTime = now;
+
+            if (result.rowCount > 0) {
+                const row = result.rows[0];
+                currentTokens = parseInt(row.tokens, 10);
+                lastRefillTime = parseInt(row.last_refill_time, 10);
+            }
+
+            // Calculate tokens to add
+            const elapsedTime = now - lastRefillTime;
+            const tokensToAdd = Math.floor((elapsedTime / 1000) * this.tokensPerInterval);
+            const newTokens = Math.min(currentTokens + tokensToAdd, this.bucketCapacity);
+
+            // Consume a token if available
+            const canConsume = newTokens > 0;
+            const updatedTokens = canConsume ? newTokens - 1 : newTokens;
+
+            // Upsert the bucket state
+            await client.query(
+                `INSERT INTO token_buckets (key, tokens, last_refill_time)
+                 VALUES ($1, $2, $3)
+                 ON CONFLICT (key)
+                 DO UPDATE SET tokens = $2, last_refill_time = $3`,
+                [key, updatedTokens, now]
+            );
+
+            await client.query('COMMIT');
+
+            return {
+                totalHits: updatedTokens,
+                resetTime: new Date(lastRefillTime + this.refillInterval),
+            };
+        } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+        } finally {
+            client.release();
         }
+    }
 
-        await this.pool.query('COMMIT'); // Commit the transaction
-        return { totalHits: newTokens, resetTime: new Date(now.getTime() + this.windowMs) };  // Tokens after increment
-      } else {
-        // Create a new token bucket if the key doesn't exist
-        await this.pool.query(
-          'INSERT INTO token_bucket (key, tokens, last_refill) VALUES ($1, $2, $3)',
-          [key, this.maxTokens, now]  // Start with max tokens available
+    async get(key: string): Promise<ClientRateLimitInfo | undefined> {
+        const result = await this.pool.query(
+            `SELECT tokens, last_refill_time FROM token_buckets WHERE key = $1`,
+            [key]
         );
 
-        await this.pool.query('COMMIT'); // Commit the transaction
-        return { totalHits: this.maxTokens, resetTime: new Date(now.getTime() + this.windowMs) };  // Tokens after increment
-      }
-    } catch (err) {
-      await this.pool.query('ROLLBACK'); // Rollback the transaction in case of error
-      throw err;
+        if (result.rowCount === 0) {
+            return undefined;
+        }
+
+        const { tokens, last_refill_time } = result.rows[0];
+        const lastRefillTime = parseInt(last_refill_time, 10);
+
+        return {
+            totalHits: tokens,
+            resetTime: new Date(lastRefillTime + this.refillInterval),
+        };
     }
-  }
 
-  // Decrement the tokens (consume one token) for a specific key
-  async decrement(key: string): Promise<ClientRateLimitInfo> {
-    const now = new Date();
+    async decrement(key: string): Promise<void> {
+        const client = await this.pool.connect();
+        try {
+            await client.query('BEGIN');
 
-    await this.pool.query('BEGIN'); // Start a transaction
+            // Fetch current tokens
+            const result = await client.query(
+                `SELECT tokens FROM token_buckets WHERE key = $1 FOR UPDATE`,
+                [key]
+            );
 
-    try {
-      const result = await this.pool.query(
-        'SELECT tokens, last_refill FROM token_bucket WHERE key = $1 FOR UPDATE',
-        [key]
-      );
+            if (result.rowCount > 0) {
+                const currentTokens = parseInt(result.rows[0].tokens, 10);
+                const newTokens = Math.min(currentTokens + 1, this.bucketCapacity);
 
-      if (result.rows.length > 0) {
-        const { tokens, last_refill } = result.rows[0];
+                // Update tokens
+                await client.query(
+                    `UPDATE token_buckets SET tokens = $1 WHERE key = $2`,
+                    [newTokens, key]
+                );
+            }
 
-        // Calculate how many tokens should be refilled
-        const timeSinceLastRefill = now.getTime() - new Date(last_refill).getTime();
-        const refillTokens = Math.floor(timeSinceLastRefill / this.windowMs) * this.refillRate;
-        const newTokens = Math.min(tokens + refillTokens, this.maxTokens);
-
-        // If the bucket was refilled, update the tokens and last refill time
-        if (newTokens !== tokens) {
-          await this.pool.query(
-            'UPDATE token_bucket SET tokens = $1, last_refill = $2 WHERE key = $3',
-            [newTokens, now, key]
-          );
+            await client.query('COMMIT');
+        } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+        } finally {
+            client.release();
         }
+    }
 
-        // Check if there are enough tokens to decrement
-        if (newTokens > 0) {
-          await this.pool.query(
-            'UPDATE token_bucket SET tokens = $1 WHERE key = $2',
-            [newTokens - 1, key]
-          );
-          await this.pool.query('COMMIT'); // Commit the transaction
-          return { totalHits: newTokens - 1, resetTime: new Date(now.getTime() + this.windowMs) };  // Token successfully consumed
-        }
-      } else {
-        // Create a new token bucket if the key doesn't exist
+    async resetKey(key: string): Promise<void> {
+        const now = Date.now();
         await this.pool.query(
-          'INSERT INTO token_bucket (key, tokens, last_refill) VALUES ($1, $2, $3)',
-          [key, this.maxTokens - 1, now]  // Start with one token available
+            `INSERT INTO token_buckets (key, tokens, last_refill_time)
+             VALUES ($1, $2, $3)
+             ON CONFLICT (key)
+             DO UPDATE SET tokens = $2, last_refill_time = $3`,
+            [key, this.bucketCapacity, now]
         );
-      }
-
-      await this.pool.query('COMMIT'); // Commit the transaction
-      return { totalHits: 0, resetTime: new Date(now.getTime() + this.windowMs) };  // Not enough tokens to decrement
-    } catch (err) {
-      await this.pool.query('ROLLBACK'); // Rollback the transaction in case of error
-      throw err;
     }
-  }
 
-  // Reset the token bucket for a specific key
-  async resetKey(key: string): Promise<void> {
-    await this.pool.query('DELETE FROM token_bucket WHERE key = $1', [key]);
-  }
+    async resetAll(): Promise<void> {
+        await this.pool.query('DELETE FROM token_buckets');
+    }
 
-  // Reset all keys and clear the token bucket table
-  async resetAll(): Promise<void> {
-    await this.pool.query('TRUNCATE TABLE token_bucket');
-  }
-
-  // Gracefully shut down the store and close the connection pool
-  async shutdown(): Promise<void> {
-    await this.pool.end();
-  }
+    shutdown(): void {
+        // Close the PostgreSQL connection pool
+        this.pool.end();
+    }
 }

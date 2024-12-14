@@ -22,34 +22,41 @@ import express from "express";
 import ZShield from "./shield/lib";
 import { InMemoryStore } from "./shield/memory/inMemoryStore";
 import Redis, { Redis as RedisClient } from 'ioredis';
-import { RedisStore } from "./token-bucket/cache-memory";
+import FixedWindowRedisStore from "./fixed-window/cache-memory";
+import RedisTokenBucketStore from "./token-bucket/cache-memory";
 
 const app = express();
 
 
 
 
-// const fw = FixedWindow({
-//     windowMs: 15000,
-//     limit: 3
-// });
+// const fwredisClient = new Redis()
+// const fwstore = new FixedWindowRedisStore({ 
+//   client: fwredisClient,
+// })
+const redisClient = new Redis()
+const store = new FixedWindowRedisStore({ 
+  client: redisClient,
+})
 
-// // const redisClient = new Redis()
-// // const store = new RedisStore({ 
-// //   client: redisClient,
-// //   prefix: 'myapp:rate-limit:',
-// //   windowMs: 60000, // 1 minute
-// //   resetExpiryOnChange: true 
-// // })
+
+const fw = FixedWindow({
+    windowMs: 15000,
+    limit: 3,
+    // store: fwstore
+});
+
 
 const tb = tokenBucket({
     maxTokens: 5,
     refillRate: 1,
+    store: new RedisTokenBucketStore(redisClient)
 });
 
 
 app.use('/tb', tb);
 // app.use('/fw', fw);
+app.use('/fw', fw);
 
 app.use(express.json());
 

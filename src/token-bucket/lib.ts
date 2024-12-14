@@ -12,15 +12,6 @@ import {
 } from '../header';
 import { parseOptions, handleAsyncErrors, getOptionsFromConfig } from '../BucketparseConfig';
 
-/**
- * Token Bucket rate-limiting middleware for Express.
- *
- * @param passedOptions {Options} - Options to configure the rate limiter.
- *
- * @returns {RateLimitRequestHandler} - The middleware to rate-limit clients.
- *
- * @public
- */
 const tokenBucket = (
 	passedOptions?: Partial<BucketOptions>,
 ): RateLimitRequestHandler => {
@@ -28,8 +19,8 @@ const tokenBucket = (
 	const options = getOptionsFromConfig(config);
 	//validaion store ke liye likh diyo mohit tu
 	// Ensure proper store validation
-	// config.validations.creationStack(config.store);
-	// config.validations.unsharedStore(config.store);
+	config.validations.BucketcreationStack(config.store);
+	config.validations.BucketunsharedStore(config.store);
 
 	if (typeof config.store.init === 'function') config.store.init(options);
 
@@ -64,8 +55,8 @@ const tokenBucket = (
 				throw error;
 			}
 			// ye validation bhi likhne hain mohit ko
-			// config.validations.positiveHits(tokensRemaining);
-			// config.validations.singleCount(request, config.store, key);
+			config.validations.positiveHits(tokensRemaining);
+			config.validations.BucketsingleCount(request, config.store, key);
 
 			const retrieveLimit =
 				typeof config.maxTokens === 'function'

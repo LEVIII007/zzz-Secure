@@ -347,7 +347,30 @@ const validations = {
 				// Print out an error anyways, to alert them of the possibility that
 				// the rate limiter may not work as intended.
 
-				// See the discussion here: https://github.com/express-rate-limit/express-rate-limit/pull/461#discussion_r1626940562.
+				throw new ValidationError(
+					'ERR_ERL_CREATED_IN_REQUEST_HANDLER',
+					'express-rate-limit instance should *usually* be created at app initialization, not when responding to a request.',
+				)
+			}
+
+			// Otherwise, make sure they know not to do this.
+			throw new ValidationError(
+				'ERR_ERL_CREATED_IN_REQUEST_HANDLER',
+				`express-rate-limit instance should be created at app initialization, not when responding to a request.`,
+			)
+		}
+	},
+	BucketcreationStack(store: BucketStore) {
+		const { stack } = new Error(
+			'express-rate-limit validation check (set options.validate.creationStack=false to disable)',
+		)
+
+		if (stack?.includes('Layer.handle [as handle_request]')) {
+			if (!store.localKeys) {
+				// This means the user is using an external store, which may be safe.
+				// Print out an error anyways, to alert them of the possibility that
+				// the rate limiter may not work as intended.
+
 				throw new ValidationError(
 					'ERR_ERL_CREATED_IN_REQUEST_HANDLER',
 					'express-rate-limit instance should *usually* be created at app initialization, not when responding to a request.',
