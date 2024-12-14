@@ -50,6 +50,8 @@ const tokenBucket = (
 				const incrementResult = await config.store.increment(key);
 				tokensRemaining = incrementResult.totalHits;
 				resetTime = incrementResult.resetTime;
+				console.log(`Tokens remaining: ${tokensRemaining}`);
+				console.log(`Reset time: ${resetTime}`);
 			} catch (error) {
 				if (config.passOnStoreError) {
 					console.error(
@@ -127,7 +129,7 @@ const tokenBucket = (
 
 			config.validations.disable();
 
-			if (tokensRemaining > limit) {
+			if (tokensRemaining == 0) {
 				if (config.standardHeaders) {
 					setRetryAfterHeader(response, info, config.windowMs);
 				}
