@@ -3,7 +3,7 @@ import { StoreInterface } from './memoryInterface';
 
 type StoreValue = { score: number; expiry: number; isBlocked: boolean };
 
-export class PostgresStore implements StoreInterface {
+export default class PostgresShieldStore implements StoreInterface {
 	private pool: Pool;
 	private suspicionThreshold: number;
 	private blockDurationMs: number;

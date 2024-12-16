@@ -13,7 +13,7 @@ interface RedisStoreOptions {
     blockDurationMs?: number;
 }
 
-export class RedisStore implements StoreInterface {
+export default class RedisShieldStore implements StoreInterface {
   private client: RedisClient;
   private windowMs: number;
   private resetExpiryOnChange: boolean;

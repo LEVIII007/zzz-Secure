@@ -1,7 +1,7 @@
 import { StoreInterface } from "./memoryInterface";
 type StoreValue = { score: number; expiry: number; isBlocked: boolean };
 
-export class InMemoryStore implements StoreInterface {
+export default class ShieldMemoryStore implements StoreInterface {
     private store = new Map<string, StoreValue>();
     private expiryQueue: Array<{ key: string; expiry: number }> = [];
 
