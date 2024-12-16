@@ -1,4 +1,4 @@
-import { StoreInterface } from "./memoryInterface";
+import { StoreInterface } from "../../types";
 type StoreValue = { score: number; expiry: number; isBlocked: boolean };
 
 export default class ShieldMemoryStore implements StoreInterface {

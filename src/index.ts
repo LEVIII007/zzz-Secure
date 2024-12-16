@@ -14,6 +14,7 @@ import PostgresShieldStore from "./shield/memory/pg";
 import ShieldMemoryStore from "./shield/memory/inMemoryStore";
 import PostgresTokenBucketStore from "./token-bucket/pg";
 
+export * from "./types";
 
 export {
     ZShield,
@@ -31,4 +32,4 @@ export {
     RedisTokenBucketStore,
     RedisFixedWindowStore,
     PostgresTokenBucketStore
-}
+};

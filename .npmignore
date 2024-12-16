@@ -1,6 +1,15 @@
+# Exclude everything by default
 *
+
+# Include the specific files and folders you want
 !dist/
-!license.md
+!README.md
+!LICENSE.md
 !package.json
-!readme.md
 !tsconfig.json
+
+dist/test/*
+
+# Exclude log files and logs folder
+*.log
+logs/

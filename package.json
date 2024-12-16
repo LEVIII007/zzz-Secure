@@ -1,6 +1,6 @@
 {
   "name": "z-secure",
-  "version": "1.1.0",
+  "version": "1.1.5",
   "description": "A package to enhance security in Node.js backends with rate limiting, bot protection, and SQL injection prevention.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -13,7 +13,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/LEVIII007/zzz-Secure.git"
+    "url": "git+https://github.com/LEVIII007/zzz-Secure.git"
   },
   "keywords": [
     "security",
@@ -25,7 +25,7 @@
     "express"
   ],
   "engines": {
-    "node": ">=20.0.0 <22.0.0"
+    "node": ">= 15.0.0"
   },
   "files": [
     "dist/",
@@ -48,12 +48,11 @@
     "typescript": "^5.7.2"
   },
   "peerDependencies": {
-    "express": "^4.21.2",
+    "express": "^4.21.2"
+  },
+  "optionalDependencies": {
     "ioredis": "^4.28.5",
     "pg": "^8.0.0"
-  },
-  "dependencies": {
-    "debug": "^4.4.0",
-    "redis": "^4.7.0"
   }
 }
+
