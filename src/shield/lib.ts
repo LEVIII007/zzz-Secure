@@ -1,5 +1,5 @@
 // src/algorithm/ArcjetShield.ts
-import { InMemoryStore } from './memory/inMemoryStore';
+import  ShieldMemoryStore  from './memory/inMemoryStore';
 import { Request, Response, NextFunction } from 'express';
 import { handleAsyncErrors } from '../parseConfig';
 import { StoreInterface } from './memory/memoryInterface';
@@ -90,7 +90,7 @@ export default class ZShield {
             lfi: true,
             rfi: true,
             shellInjection: true,
-            store: new InMemoryStore(),
+            store: new ShieldMemoryStore(),
             ...options,
         };
 
