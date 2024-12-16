@@ -21,8 +21,7 @@ import {
 import { Pool } from "pg";
 
 const app = express();
-const POSTGRES_URL =
-  "postgres://default:7ZKLiXguFct1@ep-morning-hill-a1clo2nl-pooler.ap-southeast-1.aws.neon.tech:5432/verceldb?sslmode=require";
+
 
 // Configure PostgreSQL connection pool
 const pool = new Pool({
