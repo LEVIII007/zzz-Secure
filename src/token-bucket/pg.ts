@@ -54,7 +54,7 @@ export default class PostgresTokenBucketStore implements BucketStore {
             let currentTokens = 0;
             let lastRefillTime = now;
 
-            if (result.rowCount > 0) {
+            if (result.rowCount && result.rowCount > 0) {
                 const row = result.rows[0];
                 currentTokens = parseInt(row.tokens, 10);
                 lastRefillTime = parseInt(row.last_refill_time, 10);
@@ -122,7 +122,7 @@ export default class PostgresTokenBucketStore implements BucketStore {
                 [key]
             );
 
-            if (result.rowCount > 0) {
+            if (result.rowCount !== null && result.rowCount > 0) {
                 const currentTokens = parseInt(result.rows[0].tokens, 10);
                 const newTokens = Math.min(currentTokens + 1, this.bucketCapacity);
 

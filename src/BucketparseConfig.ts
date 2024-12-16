@@ -19,7 +19,6 @@ import {
 } from './header';
 import { getValidations, type Validations } from './validation';
 import  MemoryTokenBucketStore  from './token-bucket/memory';
-import MemoryLeakyBucketStore  from './leaky-bucket/memory/in-memory';
 
 type Configuration = {
     Limit: number | ValueDeterminingMiddleware<number>;
