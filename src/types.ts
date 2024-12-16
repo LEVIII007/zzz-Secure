@@ -265,6 +265,7 @@ export type Options = {
 export type BucketOptions = {
 	Limit : number | ValueDeterminingMiddleware<number>
 	maxTokens: number | ValueDeterminingMiddleware<number> // for TokenBucket
+	refillInterval ?: number | ValueDeterminingMiddleware<number> // for TokenBucket
 	refillRate: number | undefined;   // for TokenBucket
 	LeakRate: number | undefined;      // for leaky
 	message: any | ValueDeterminingMiddleware<any>
