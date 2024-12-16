@@ -1,12 +1,30 @@
 import { Request, Response, NextFunction } from 'express';
 import debug from 'debug';
+import { ClientRateLimitInfo, IncrementResponse, Options } from '../types';
 
 const log = debug('leaky-bucket');
+type Store = {
+  init?: (options: Options) => void
 
+  get?: (
+    key: string,
+  ) =>
+    | Promise<ClientRateLimitInfo | undefined>
+    | ClientRateLimitInfo
+    | undefined
+  increment: (key: string) => Promise<IncrementResponse> | IncrementResponse
+  decrement: (key: string) => Promise<void> | void
+  resetKey: (key: string) => Promise<void> | void
+  resetAll?: () => Promise<void> | void
+  shutdown?: () => Promise<void> | void
+  localKeys?: boolean
+  prefix?: string
+}
 interface Input {
   capacity?: number;
   timeout?: number;
   interval?: number;
+  store?: Store;
 }
 
 interface QueueAction {
@@ -15,6 +33,7 @@ interface QueueAction {
   cost: number;
   isPause: boolean;
 }
+
 
 type Timeout = ReturnType<typeof setTimeout>;
 
@@ -31,8 +50,8 @@ export default class LeakyBucket {
   refillRate: number = 0;
   emptyPromiseResolver?: () => void;
   emptyPromise?: Promise<void>;
-
-  constructor({ capacity = 60, timeout, interval = 60000 }: Input = {}) {
+  store?: Store;
+  constructor({ capacity = 60, timeout, interval = 60000 ,store}: Input = {}) {
     timeout = timeout ?? interval;
 
     this.queue = [];
@@ -44,11 +63,18 @@ export default class LeakyBucket {
     this.setCapacity(capacity);
     this.setTimeout(timeout);
     this.setInterval(interval);
+    this.store = store;
   }
-
+  
   async throttle(cost = 1, append = true, isPause = false): Promise<void> {
+    
     const maxCurrentCapacity = this.getCurrentMaxCapacity();
-
+    // if (this.store) {
+    //   console.log('Using store for rate limiting.');
+    // } else {
+    //   console.log('Using in-memory rate limiting.');
+    // }
+    
     if (append && this.totalCost + cost > maxCurrentCapacity) {
       log(`Rejecting item: max capacity exceeded.`);
       throw new Error(`Bucket overflow.`);
@@ -239,6 +265,7 @@ export default class LeakyBucket {
 
   // Express middleware
   rateLimitMiddleware = (req: Request, res: Response, next: NextFunction): void => {
+
     this.throttle()  // throttle can be customized with cost parameters if needed
       .then(() => {
         next();  // Proceed to the next middleware or route handler

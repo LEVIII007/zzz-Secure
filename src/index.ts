@@ -12,6 +12,7 @@ import ZShield from "./shield/lib";
 import RedisShieldStore from "./shield/memory/cache-memory";
 import PostgresShieldStore from "./shield/memory/pg";
 import ShieldMemoryStore from "./shield/memory/inMemoryStore";
+import PostgresTokenBucketStore from "./token-bucket/pg";
 
 
 export {
@@ -28,5 +29,6 @@ export {
     MemoryLeakyBucketStore,
     MemoryTokenBucketStore,
     RedisTokenBucketStore,
-    RedisFixedWindowStore
+    RedisFixedWindowStore,
+    PostgresTokenBucketStore
 }

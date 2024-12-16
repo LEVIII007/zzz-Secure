@@ -24,15 +24,15 @@ export default class PostgresLeakyBucketStore implements Store {
   }
 
   /**
-   * Initializes the store by creating the rate_limit table if it doesn't already exist.
+   * Initializes the store by creating the Leaky_bucket table if it doesn't already exist.
    * @param options {Options} - Configuration options for the store.
    */
   async init(options: Options): Promise<void> {
     this.windowMs = options.windowMs;
 
-    // Create the rate_limit table if it doesn't already exist
+    // Create the Leaky_bucket table if it doesn't already exist
     await this.pool.query(`
-      CREATE TABLE IF NOT EXISTS rate_limit (
+      CREATE TABLE IF NOT EXISTS Leaky_bucket (
         client_id TEXT PRIMARY KEY,
         remaining_capacity FLOAT NOT NULL,
         last_updated TIMESTAMP NOT NULL,
@@ -40,6 +40,7 @@ export default class PostgresLeakyBucketStore implements Store {
         leak_rate FLOAT NOT NULL
       )
     `);
+    console.debug('Leaky bucket table verified or created successfully.');
   }
 
   /**
@@ -50,7 +51,7 @@ export default class PostgresLeakyBucketStore implements Store {
   async get(key: string): Promise<ClientRateLimitInfo | undefined> {
     const result = await this.pool.query(
       `SELECT remaining_capacity, last_updated, bucket_capacity, leak_rate
-       FROM rate_limit
+       FROM Leaky_bucket
        WHERE client_id = $1`,
       [key]
     );
@@ -86,7 +87,7 @@ export default class PostgresLeakyBucketStore implements Store {
     try {
       const result = await this.pool.query(
         `SELECT remaining_capacity, last_updated, bucket_capacity, leak_rate
-         FROM rate_limit
+         FROM Leaky_bucket
          WHERE client_id = $1 FOR UPDATE`,
         [key]
       );
@@ -105,7 +106,7 @@ export default class PostgresLeakyBucketStore implements Store {
         if (newRemaining > 0) {
           totalHits = newRemaining - 1;
           await this.pool.query(
-            `UPDATE rate_limit
+            `UPDATE Leaky_bucket
              SET remaining_capacity = $1, last_updated = $2
              WHERE client_id = $3`,
             [totalHits, now, key]
@@ -124,7 +125,7 @@ export default class PostgresLeakyBucketStore implements Store {
         resetTime = new Date(now.getTime() + bucketCapacity / leakRate);
 
         await this.pool.query(
-          `INSERT INTO rate_limit (client_id, remaining_capacity, last_updated, bucket_capacity, leak_rate)
+          `INSERT INTO Leaky_bucket (client_id, remaining_capacity, last_updated, bucket_capacity, leak_rate)
            VALUES ($1, $2, $3, $4, $5)`,
           [key, totalHits, now, bucketCapacity, leakRate]
         );
@@ -151,7 +152,7 @@ export default class PostgresLeakyBucketStore implements Store {
     try {
       const result = await this.pool.query(
         `SELECT remaining_capacity, last_updated, bucket_capacity, leak_rate
-         FROM rate_limit
+         FROM Leaky_bucket
          WHERE client_id = $1 FOR UPDATE`,
         [key]
       );
@@ -167,7 +168,7 @@ export default class PostgresLeakyBucketStore implements Store {
         if (newRemaining > 0) {
           const updatedRemaining = newRemaining - 1;
           await this.pool.query(
-            `UPDATE rate_limit
+            `UPDATE Leaky_bucket
              SET remaining_capacity = $1, last_updated = $2
              WHERE client_id = $3`,
             [updatedRemaining, now, key]
@@ -187,14 +188,14 @@ export default class PostgresLeakyBucketStore implements Store {
    * @param key {string} - The identifier for a client.
    */
   async resetKey(key: string): Promise<void> {
-    await this.pool.query(`DELETE FROM rate_limit WHERE client_id = $1, [key]`);
+    await this.pool.query(`DELETE FROM Leaky_bucket WHERE client_id = $1, [key]`);
   }
 
   /**
    * Resets the hit counters for all clients.
    */
   async resetAll(): Promise<void> {
-    await this.pool.query(`TRUNCATE TABLE rate_limit`);
+    await this.pool.query(`TRUNCATE TABLE Leaky_bucket`);
   }
 
   /**
