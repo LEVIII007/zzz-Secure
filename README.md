@@ -176,4 +176,217 @@ All function options may be async. Click the name for additional info and defaul
 | [`store`]                  | `StoreInterface`                          | Use a custom store for persistent storage.                                                      |
 
 
+## Token Bucket Algorithm Rate Limiting Usage
+Basic rate-limiting middleware for Express. Use to control the rate of incoming requests with a more dynamic approach, where requests "refill" based on a token rate.
+
+Example: Using In-Memory Token Bucket
+
+```ts
+import { TokenBucket } from 'z-secure';
+
+const limiter = TokenBucket({
+    maxTokens: 100, // Maximum tokens in the bucket
+    refillRate: 10, // Tokens added per second
+    standardHeaders: 'draft-8', // draft-6: `RateLimit-*` headers; draft-7 & draft-8: combined `RateLimit` header
+    // store: ..., // Redis, Postgres, or In-Memory (default).
+});
+
+// Apply the rate limiting middleware to all requests.
+app.use(limiter);
+
+```
+```ts
+import { TokenBucket, RedisTokenBucketStore } from 'z-secure';
+import Redis, { Redis as RedisClient } from 'ioredis';
+
+const redisClient = new RedisClient({
+    host: 'localhost',
+    port: 6379,
+    password: 'your_password',
+});
+
+const store = new RedisTokenBucketStore({
+    client: redisClient,
+});
+
+const limiter = TokenBucket({
+    maxTokens: 100, // Maximum tokens in the bucket
+    refillRate: 10, // Tokens added per second
+    standardHeaders: 'draft-8', // draft-6: `RateLimit-*` headers; draft-7 & draft-8: combined `RateLimit` header
+    store: store,
+});
+
+// Apply the rate limiting middleware to all requests.
+app.use(limiter);
+
+```
+
+
+```ts
+import { TokenBucket, PostgresTokenBucketStore } from 'z-secure';
+import { Pool } from 'pg';
+
+const pool = new Pool({
+    user: 'your_user',
+    host: 'localhost',
+    database: 'your_database',
+    password: 'your_password',
+    port: 5432,
+});
+
+const store = new PostgresTokenBucketStore({
+    pool: pool,
+});
+
+const limiter = TokenBucket({
+    maxTokens: 100, // Maximum tokens in the bucket
+    refillRate: 10, // Tokens added per second
+    standardHeaders: 'draft-8', // draft-6: `RateLimit-*` headers; draft-7 & draft-8: combined `RateLimit` header
+    store: store,
+});
+
+// Apply the rate limiting middleware to all requests.
+app.use(limiter);
+
+```
+
+
+
+### Data Stores
+
+The rate limiter comes with a built-in memory store, and supports Postgres and Redis also.
+
+### Configuration for Token Bucket Algorithm
+
+All function options may be async. Click the name for additional info and default values.
+
+| Option                     | Type                                      | Remarks                                                                                         |
+| -------------------------- | ----------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| [`maxTokens]`] | `number | function` | Maximum tokens in the bucket. |
+| [`refillRate`]          | `number`                                 | Tokens added per second.                                                               |
+| [`message`] | `string | json | function`                                 | Response to return after bucket is empty.                                                     |
+| [`statusCode`]       | `function`                                | HTTP status code when bucket is empty (default is 429).                                                                   |
+| [`handler`]            | `function`                                |Function to run when bucket is empty (overrides message and statusCode settings, if set).                                 |
+| [`standardHeaders`]     | `draft-6' | 'draft-7' | 'draft-8`                                  | Enable the RateLimit header.                                                  |
+| [`identifier`]        | `string | function`                                  | Enable the RateLimit header.                                                       |
+| [`passOnStoreError`]      | `Array<RegExp>`                           | Patterns to detect attacks.                                                                     |
+| [`message`]                | `string`                                  | Message to return when a request is blocked.                                                    |
+| [`csrf`]                   | `boolean`                                 | Enable or disable CSRF protection.                                                              |
+| [`rfi`]                    | `boolean`                                 | Enable or disable Remote File Inclusion protection.                                             |
+| [`shellInjection`]         | `boolean`                                 | Enable or disable Shell Injection protection.                                                   |
+| [`store`]                  | `StoreInterface`                          | Use a custom store for persistent storage.                                                      |
+
+
+## Leaky Bucket Algorithm Rate Limiting Usage
+
+Basic rate-limiting middleware for Express. Use to control the rate of requests sent to public APIs and/or endpoints such as login or signup.
+
+```ts
+import { LeakyBucket } from 'z-secure';
+
+const limiter = LeakyBucket({
+    capacity: 100, // Maximum number of requests allowed in the bucket
+    leakRate: 5, // Number of requests leaked per second
+    standardHeaders: 'draft-8', // draft-6: `RateLimit-*` headers; draft-7 & draft-8: combined `RateLimit` header
+    // store: ... , // Redis, Postgres, In-Memory, etc. See below.
+});
+
+// Apply the rate-limiting middleware to all requests.
+app.use(limiter);
+
+```
+
+```ts
+import { LeakyBucket, RedisLeakyBucketStore } from 'z-secure';
+import Redis, { Redis as RedisClient } from 'ioredis';
+
+const redisClient = new RedisClient({
+    host: 'localhost',
+    port: 6379,
+    password: 'your_password',
+});
+
+const store = new RedisLeakyBucketStore({
+    client: redisClient,
+});
+
+const limiter = LeakyBucket({
+    capacity: 100, // Maximum number of requests allowed in the bucket
+    leakRate: 5, // Number of requests leaked per second
+    standardHeaders: 'draft-8', // draft-6: `RateLimit-*` headers; draft-7 & draft-8: combined `RateLimit` header
+    store: store,
+});
+
+// Apply the rate-limiting middleware to all requests.
+app.use(limiter);
+
+```
+
+
+```ts
+import { LeakyBucket, PostgresLeakyBucketStore } from 'z-secure';
+import { pg } from 'pg';
+
+const pool = new pg.Pool({
+    user: 'your_user',
+    host: 'localhost',
+    database: 'your_database',
+    password: 'your_password',
+    port: 5432,
+});
+
+const store = new PostgresLeakyBucketStore({
+    pool: pool,
+});
+
+const limiter = LeakyBucket({
+    capacity: 100, // Maximum number of requests allowed in the bucket
+    leakRate: 5, // Number of requests leaked per second
+    standardHeaders: 'draft-8', // draft-6: `RateLimit-*` headers; draft-7 & draft-8: combined `RateLimit` header
+    store: store,
+});
+
+// Apply the rate-limiting middleware to all requests.
+app.use(limiter);
+
+```
+
+
+
+
+### Data Stores
+
+The rate limiter comes with a built-in memory store, and supports Postgres and Redis also.
+
+### Configuration for Leaky Bucket Algorithm
+
+All function options may be async. Click the name for additional info and default values.
+
+| Option                     | Type                                      | Remarks                                                                                         |
+| -------------------------- | ----------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| [`capacity`]               | `number`                                  | Maximum number of requests allowed in the bucket.                                           |
+| [`leakRate`]                  | `number`                   | Number of requests leaked from the bucket per second.                                                                     |
+| [`message`]                | `string` \| `json` \| `function`          | Response to return after limit is reached.                                                      |
+| [`statusCode`]             | `number`                                  | HTTP status code after limit is reached (default is 429).                                       |
+| [`handler`]                | `function`                                | Function to run after limit is reached (overrides `message` and `statusCode` settings, if set). |                                                             |
+| [`standardHeaders`]        | `'draft-6'` \| `'draft-7'` \| `'draft-8'` | Enable the `Ratelimit` header.                                                                  |
+| [`identifier`]             | `string` \| `function`                    | Name associated with the quota policy enforced by this rate limiter.                            |
+| [`store`]                  | `Store`                                   | Use a custom store to share hit counts across multiple nodes.                                   |
+| [`passOnStoreError`]       | `boolean`                                 | Allow (`true`) or block (`false`, default) traffic if the store becomes unavailable.            |
+| [`keyGenerator`]           | `function`                                | Identify users (defaults to IP address).                                                        |
+| [`requestPropertyName`]    | `string`                                  | Add rate limit info to the `req` object.                                                        |
+| [`skip`]                   | `function`                                | Return `true` to bypass the limiter for the given request.                                      |
+| [`skipSuccessfulRequests`] | `boolean`                                 | Uncount 1xx/2xx/3xx responses.                                                                  |
+| [`skipFailedRequests`]     | `boolean`                                 | Uncount 4xx/5xx responses.                                                                      |
+| [`requestWasSuccessful`]   | `function`                                | Used by `skipSuccessfulRequests` and `skipFailedRequests`.                                      |
+| [`validate`]               | `boolean` \| `object`                     | Enable or disable built-in validation checks.                                                   |
+
+
+
+
+
+
+
+
+
 
